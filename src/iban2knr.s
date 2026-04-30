@@ -10,25 +10,26 @@
 iban2knr:
 # TODO
 
-	mv     t5 a0
 
-# stores BLZ inits place
-# length of BLZ
-	addi   t5 t5 4
-	li     t3 8
 
-memcpy_BLZ:
-	mv     t0 a1             # current target
-	mv     t1 t5             # current source
-	add    t2 t5 t3          # last source
+	addi   sp sp -16
+	sw     ra 0(sp)
+	sw     a0 4(sp)
+	sw     a1 8(sp)
+	sw     a2 12(sp)
 
-mc_loop_BLZ:
-# copy over 1 byte from source to target
-	lbu    t4 0(t1)
-	sb     t4 0(t0)
-	addi   t0 t0 1
-	addi   t1 t1 1
-	bltu   t1 t2 mc_loop_BLZ # while current source != last
+	mv     t0 a1
+	mv     a1 a0
+	mv     a0 t0
+	addi   a1 a1 4
+	li     a2 8
+	call   memcpy
+
+	lw     ra 0(sp)
+	lw     a0 4(sp)
+	lw     a1 8(sp)
+	lw     a2 12(sp)
+	addi   sp sp 16
 
 
 # stores KNR in its place
