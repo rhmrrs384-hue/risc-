@@ -1,0 +1,4602 @@
+Claude finished the responseYou said: ive written this code and it gives me this errorive written this code and it gives me this error27 AprClaude responded: Looking at your code and the error message:Looking at your code and the error message:
+Error: AssemblerError: iban2knr.s:17: label t3 used but not defined la a1 t3
+The issue is on line 17:
+asmla    a1 t3    #load final value of t3 into a1
+la (load address) takes a register and a label/immediate, not another register. You're trying to use t3 as if it's a memory label, but t3 is a register.
+What you probably want instead is mv (move):
+asmmv    a1, t3    # move value of t3 into a1
+Same fix applies to line 26:
+asmla    a2 t5    →    mv    a2, t5
+So the corrected lines should be:
+asm; Line 17
+mv    a1, t3    # load final value of t3 into a1
+
+; Line 26  
+mv    a2, t5    # load final value of t5 into a2
+la is for loading the address of a label (e.g., a memory location defined in .data), while mv copies a value from one register to another.You said: 0xC0FEBABE  in denary value0xC0FEBABE  in denary value27 AprClaude responded: 0xC0FEBABE in decimal is:0xC0FEBABE in decimal is:
+3,237,937,854You said: ignore right side code look at left side slides and explain horners method and the slides what they sayignore right side code look at left side slides and explain horners method and the slides what they say28 AprClaude responded: Task 2 - ExampleTask 2 - Example
+The slide shows the problem you're solving:
+
+a0 = 0xC0FEBABE (the IBAN as a large number)
+a1 = 4 (number of bytes in the buffer)
+a2 = 17, a0 = 10 (result)
+
+The goal is to compute a0 mod a2, i.e. the big IBAN number mod 17 = 10.
+The Problem: The IBAN number is too large to fit in a 32-bit register, so you can't just do it in one step.
+
+Horner's Method
+This is the solution to that problem. Instead of computing the whole number at once, you build it up digit by digit, applying mod at each step.
+Example with 1234:
+Instead of computing 1234 directly:
+1×1000 + 2×100 + 3×10 + 4 = 1234
+You rewrite it as:
+((1×10 + 2)×10 + 3)×10 + 4 = 1234
+Each step you just multiply by 10 and add the next digit — much more manageable.
+Why this works for modulo (the key insight):
+Using the modulo rules shown:
+
+(a · b) mod c = ((a mod c) · b) mod c
+(a + b) mod c = ((a mod c) + b) mod c
+
+This means you can apply mod at every step without ever needing to hold the full huge number. The intermediate values stay small enough to fit in a register.
+
+So your modulo_str function needs to loop through the buffer digit by digit, applying Horner's method with mod at each step.You said: explain code on left side not rightexplain code on left side not right28 AprClaude responded: Horner's Method - RISC-V ImplementationHorner's Method - RISC-V Implementation
+Arguments:
+
+a0 = pointer to coefficients base (start of array)
+a1 = pointer to coefficients end
+a2 = x (the value to evaluate at)
+
+
+Code Walkthrough:
+asmhorner:
+    mv    t1, a0       # t1 = pointer, starts at base of array
+    li    a0, 0        # a0 = accumulator, initialized to 0
+    j     horner_head  # jump to condition check first
+Start with accumulator = 0, then jump to the loop condition.
+
+asmhorner_loop:
+    lw    t0, 0(t1)    # load current coefficient from memory into t0
+    mul   a0, a0, a2   # accumulator = accumulator × x
+    add   a0, a0, t0   # accumulator = accumulator + current coefficient
+    addi  t1, t1, 4    # advance pointer to next coefficient (4 bytes)
+This is the core of Horner's method — each iteration: acc = acc × x + next_coeff
+
+asmhorner_head:
+    bne   t1, a1, horner_loop   # if pointer hasn't reached end, loop again
+    ret                          # otherwise return, result is in a0
+Loop continues until all coefficients are processed.
+
+Key Idea:
+Each iteration does acc = acc * x + a_i, which is exactly Horner's step — building up the polynomial result without ever needing large intermediate numbers.You said: so if i give this a2 = 10 and a0 = 4  a1 = 7 what will the out put be given that values at a0 = 4 is 1 and then 2 at next increment and then 3 and then 4so if i give this a2 = 10 and a0 = 4  a1 = 7 what will the out put be given that values at a0 = 4 is 1 and then 2 at next increment and then 3 and then 428 AprClaude responded: Tracing Through the CodeTracing Through the Code
+Setup:
+
+Array at address 4: [1, 2, 3, 4]
+x (a2) = 10
+base (a0) = address 4
+end (a1) = address 7 (but note: 4 words = 16 bytes, so realistically end should be 20, but let's follow your values)
+
+
+Step by Step Trace:
+Iterationt0 (loaded)acc = acc × 10 + t0Start-acc = 0110 × 10 + 1 = 1221 × 10 + 2 = 123312 × 10 + 3 = 12344123 × 10 + 4 = 1234
+
+Output: 1234
+This perfectly demonstrates Horner's method — it reconstructed the number 1234 from its individual digits [1, 2, 3, 4] using base 10.
+This is exactly what your modulo_str function needs to do, except:
+
+Instead of base 10, you read ASCII digits from the IBAN string
+After each acc = acc × 10 + digit, you also apply mod 97  to keep the number small
+You said: now link this to screen shot on left side and explain the mo0dulo part what it meansnow link this to screen shot on left side and explain the mo0dulo part what it means28 AprClaude responded: Linking the Slide to Your CodeLinking the Slide to Your Code
+What the slide says:
+The IBAN 1234 mod 17 = 10, but the problem is the full IBAN is too large for a 32-bit register. So you can't just load it and do rem.
+
+How your code solves it (right side):
+Setup phase:
+asmli  t1  1
+sub t2  a1  t1      # length - 1
+add t3  a0  t2      # t3 = end address of array
+la  a1  t3          # a1 = end address
+li  a3  10          # x = 10 (base 10, for decimal digits)
+Then Horner's loop runs — building the number digit by digit:
+asmModulo_loop:
+    t0  0(t1)           # load next digit
+    mul a0  a0  a3      # acc = acc × 10
+    add a0  a0  t0      # acc = acc + digit
+    addi t1  t1  4      # next digit
+
+The Missing Piece ⚠️
+Looking at your code — you're doing Horner's method but you forgot to apply mod at each step!
+After line 30 (add a0 a0 t0) you need:
+asmrem a0, a0, a2      # acc = acc mod divisor
+This uses the modulo rule from the slide:
+
+(a + b) mod c = ((a mod c) + b) mod c
+
+So at every step, instead of the number growing huge, you keep it small by taking mod — that's the whole point!You said: explain these notesexplain these notes28 AprClaude responded: Explaining the Handwritten NotesExplaining the Handwritten Notes
+Slide 1 - Horner's Method (top)
+Shows a polynomial example:
+p(x) = -3x⁴ - 3x³ + 17x + 23,  p(2) = 85
+Then rewrites it using Horner's method step by step:
+23 + 17x - 3x³ - 3x⁴
+23 + x(17 - 3x - 3x³)
+23 + x(17 + x(-3 + x(-3)))
+Then shows the recurrence pattern:
+r₀ = a₀
+rₙ = aₙ + rₙ₋₁ · x    ← this is the key formula
+Each step: multiply previous result by x, add next coefficient.
+
+Slide 2 - Basic RISC-V Implementation
+Shows a basic iterative Horner's in assembly:
+
+Uses a word array in .data
+Initializes accumulator to 0
+Loop: add a0, a0, t0 then calls function f
+The orange annotations show output = a0 at the end
+
+
+Slide 3 - Stack/Memory Version
+Similar but more complex:
+
+Uses addi sp, sp, -8 — allocating stack space
+Stores values with sw (store word)
+Loads with lw from stack offsets
+The note says "after n times" — showing it accumulates over iterations
+Bottom part: "Get the frame" — referring to stack frame management
+
+
+Slide 4 - Recursion
+Shows the recursive definition:
+f_rec(n) = { f_rec(n-1) · x,  n ≥ 1
+           { 1,                n < 1
+
+f_rec(n,r) = { f_rec(n-1, r·x),  n ≥ 1
+             { r,                  n < 1
+This is the recursive version of Horner's — instead of a loop, it calls itself, passing the accumulated result r forward each time.
+
+Link to Your Code
+Your modulo_str on the right is the Slide 2 iterative approach, just applied to a string of ASCII digits instead of a word array. The missing rem after the add is what connects it to the modulo rules from the previous slide.You said: 23 + 17x - 3x³ - 3x⁴  not it is 23 + 17x - 3x^2 -+5x^323 + 17x - 3x³ - 3x⁴  not it is 23 + 17x - 3x^2 -+5x^328 AprClaude responded: You're right, sorry!You're right, sorry! Let me re-read the polynomial:
+p(x) = -3x⁴ + 5x³ - 3x² + 17x + 23,  p(2) = 85
+Verification at x=2:
+
+-3(16) + 5(8) - 3(4) + 17(2) + 23
+= -48 + 40 - 12 + 34 + 23
+= 85 ✓
+
+
+Horner's Rewrite:
+23 + 17x - 3x² + 5x³ - 3x⁴
+23 + x(17 - 3x + 5x² - 3x³)
+23 + x(17 + x(-3 + 5x - 3x²))
+23 + x(17 + x(-3 + x(5 - 3x)))
+So the steps at x=2:
+StepCalculationResultStart-3-3× 2 + 5-3×2+5-1× 2 + (-3)-1×2-3-5× 2 + 17-5×2+177× 2 + 237×2+2385 ✓You said: explain all notes until recursionexplain all notes until recursion28 AprClaude responded: 2.2.8 Calling Functions
+Why Functions?
+As programs get larger, "spaghetti code" becomes a problem. Functions let you break programs into smaller modules with clear responsibilities. Each module can be developed, debugged and reused independently.
+
+Image 1 - The Problem with Calling Functions
+Shows a basic example:
+asmfoo:
+    add t0, a0, a1
+    call bar          # calls bar
+    add a1, a1, t0    # t0 might be corrupted now!
+The problem: When foo calls bar, we don't know if bar overwrites t0. So when we return, t0 may no longer hold what we saved.
+Key points:
+
+call is a pseudo-instruction that jumps to the function AND saves the return address in ra
+ret jumps back to where the function was called from (reads ra)
+Never assume what registers a called function uses — you must save what you need
+
+
+Image 2 - The Stack Solution
+The Diagram shows:
+When f calls f again (recursion), the second call would overwrite the saved values. So we need the stack.
+What is a Stack?
+
+A region of memory that works Last In First Out (LIFO)
+Each function allocates a stack frame — its own private space
+Stack grows downwards in memory
+sp (stack pointer) always points to the last used byte
+
+Stack Frame Example:
+asmfoo:
+    addi sp, sp, -8   # allocate frame (make space)
+    sw   t0, 0(sp)    # save t0
+    sw   ra, 4(sp)    # save return address
+    call bar
+    lw   ra, 4(sp)    # restore ra
+    lw   t0, 0(sp)    # restore t0
+    addi sp, sp, 8    # deallocate frame
+    ret
+
+Image 3 - Stack Frame Layout
+A stack frame typically contains:
+SectionContentsTopExtra arguments (9th, 10th...)Saved registersLocal variablesBottom ↓Stack grows downward
+Key Concepts:
+
+First 8 arguments go in registers a0–a7
+Extra arguments go on the stack
+Callee-save registers — the called function must preserve these (save & restore)
+Caller-save registers — the caller must save these if it needs them after the call
+Frame pointer (fp/s0) — optionally points to a fixed point in the frame, useful when frame size isn't known at compile time
+The prologue (start of function) builds the frame, the epilogue (end) tears it down
+
+
+Summary so far:
+Function call → save registers to stack → execute → restore registers → ret
+This is what allows functions to call other functions safely without corrupting each other's data — which leads directly into recursion on the next page.You said: explain left slideexplain left slide28 AprClaude responded: 2.2.8.1 Recursion - Factorial Function
+The Math Definition:
+f(n) = { n · f(n-1),  n ≥ 1
+        { 1,           n < 1
+e.g. 5! = 5×4×3×2×1 = 120
+
+Two Versions Shown:
+Left: Regular Recursive
+asmfact:
+    li   t0, 1
+    ble  a0, t0, end    # if n ≤ 1, return 1
+loop:
+    mul  t0, t0, a0     # t0 = t0 * n
+    addi a0, a0, -1     # n--
+    bgtz a0, loop       # if n > 0, loop again
+end:
+    mv   a0, t0         # return result
+    ret
+This is actually iterative — no procedure calls to itself, no stack needed.
+
+Right: Tail-Recursive Version
+f(n, r) = { f(n-1, n·r),  n ≥ 1
+           { r,             n < 1
+asmfact_rec:
+    li   t0, 1
+    ble  a0, t0, end
+    addi t0, a0, -1      # n-1
+    sw   ra, 0(sp)       # save return address
+    lw   ra, 4(sp)       # ...
+    addi a0, a0, -1
+    call fact_rec        # recursive call!
+    lw   a0, 4(sp)
+    lw   ra, 0(sp)       # restore ra
+    addi sp, sp, 8
+    mul  a0, a0, t0
+end:
+    mv   a0, t0
+    ret
+
+Key Difference (highlighted in green box):
+Regular RecursiveTail RecursiveStack framesOne per callNot needed ideallySavesargument + ra each callJust passes result forwardStack growthGrows 1→2→3→...→n deepConstant
+The note explains: the recursive version must save both the argument AND ra on the stack for every recursive call, causing the stack to grow with each call (shown in the diagram on the right — stack frames stacking up). The tail-recursive version doesn't need this.
+
+The Stack Diagram (right side of page):
+Shows the stack growing as factorial recurses — each call adds a new frame storing ra and the argument, until the base case is hit, then it unwinds back up.You said: on ,slide is the code tail recursive or not and explain the slideson ,slide is the code tail recursive or not and explain the slides28 AprClaude responded: Section 3.Section 3.4 - Evaluating Polynomials with Horner's Method
+The Polynomial:
+p(x) = a₀ + a₁x + ... + aₙxⁿ
+Straightforward evaluation needs 2(n-1) multiplications (computing each power of x separately) — very inefficient.
+Horner's method reduces it to just n multiplications by factoring out x:
+p(x) = a₀ + x(a₁ + x(a₂ + x(a₃...)))
+
+Tail-Recursive Form:
+p'(x, r) = r · x + a₀          ← base
+p'(x, i, r) = p'(x, i-1, r·x + aᵢ)  for i > 0
+So: p(x) = p'(x, n, 0)
+Start with r=0, then each step: r = r·x + next coefficient
+
+Is the Code Tail Recursive? NO
+The bottom of the slide shows the horner function:
+asmhorner:
+    mv    t1, a0        # pointer to start
+    li    a0, 0         # accumulator = 0
+    j     horner_head
+horner_loop:
+    lw    t0, 0(t1)     # load coefficient
+    mul   a0, a0, a2    # acc = acc * x
+    add   a0, a0, t0    # acc = acc + coeff
+    addi  t1, t1, 4     # advance pointer
+horner_head:
+    bne   t1, a1, horner_loop
+    ret
+This is actually an iterative loop — no call instruction, no stack frames, no recursion at all. The notes say:
+
+"The following RISC-V program implements this tail-recursive scheme using a simple loop (and no function calls)"
+
+So it's tail-recursive in concept (mathematically matches the tail-recursive formula) but implemented iteratively — which is exactly the point. Tail recursion can always be converted into a simple loop, which is more efficient because:
+
+No stack frames needed
+No saving/restoring ra
+No function call overhead
+
+
+Link to Your modulo_str code (right side):
+Your code follows exactly this same pattern — it's the Horner iterative loop, just applied to ASCII digit strings with a modulo divisor instead of a polynomial with x. The structure is identical.You said: shouldnt i use rd intead of t1 for pointershouldnt i use rd intead of t1 for pointer28 AprClaude responded: No, t1 is Correct HereNo, t1 is Correct Here
+In RISC-V, there is no register called rd — rd is just a term used in instruction encoding to mean "destination register". It's not an actual register you can use in code.
+
+The actual RISC-V registers are:
+NamePurposea0–a7Function arguments / return valuest0–t6Temporary registers — free to use inside a functions0–s11Saved registers — must preserve across callsraReturn addressspStack pointer
+
+So t1 as a pointer is perfectly fine because:
+
+It's a temporary register, free to use however you want inside a function
+You just need it to hold the current memory address while looping
+t0, t1, t2 etc. are the go-to registers for scratch work like this
+
+rd only appears in the assembly instruction format diagrams (like in textbooks showing how bits are laid out) — it means "the register being written to" in that instruction, not a usable register name.You said: i meant sp'i meant sp'28 AprClaude responded: No, sp is Wrong Here Too!No, sp is Wrong Here Too!
+sp (stack pointer) is a special purpose register — you should never use it as a general pointer.
+
+Why not sp?
+sp has one job: always point to the top of the stack. If you use it as a loop pointer:
+
+You'd be moving the stack pointer through your data array
+Any function call or interrupt would corrupt your data or crash the program
+It would completely break your stack frame
+
+
+t1 is the right choice because:
+RegisterGood for pointer?Whyt1✅ YesFree temporary, no special meaningsp❌ NoMust always point to top of stacka0-a7⚠️ MaybeAlready used for arguments/returns0-s11⚠️ MaybeMust save/restore if used
+
+The rule is simple:
+
+Need a scratch register for temporary work inside a function? → use t0–t6
+sp only moves when you allocate/deallocate stack space with addi sp, sp, -N / addi sp, sp, N
+
+So stick with t1 for your pointer — it's exactly the right choice.You said: show me how can i find remainder using mod func given not through coding but methametically step by stepshow me how can i find remainder using mod func given not through coding but methametically step by step28 AprClaude responded: Finding Remainder Step by StepFinding Remainder Step by Step
+Example: 1234 mod 17
+
+Method: Long Division
+Step 1: How many times does 17 go into 1234?
+1234 ÷ 17 = 72.58...
+Take only the whole number = 72
+Step 2: Multiply back
+72 × 17 = 1224
+Step 3: Subtract
+1234 - 1224 = 10
+Remainder = 10 ✅
+
+Now using Horner's Method (how your code does it):
+Instead of dealing with 1234 all at once, apply mod at every step:
+StepOperationResultApply mod 17Start000Digit 10×10 + 111 mod 17 = 1Digit 21×10 + 21212 mod 17 = 12Digit 312×10 + 3123123 mod 17 = 123 - 7×17 = 4Digit 44×10 + 44444 mod 17 = 44 - 2×17 = 10
+Final answer = 10 ✅ Same result!
+This proves the modulo rules from the slide work — you never needed the full number 1234, just kept it small at every step.You said: ao how is it possible methametically to apply mods at each step rather than end and it gives same ansao how is it possible methametically to apply mods at each step rather than end and it gives same ans28 AprClaude responded: Why Applying Mod at Each Step WorksWhy Applying Mod at Each Step Works
+This comes from two fundamental rules of modular arithmetic:
+
+The Two Rules:
+(a × b) mod c = ((a mod c) × b) mod c
+(a + b) mod c = ((a mod c) + b) mod c
+
+Proof with 1234 mod 17:
+Think about what 1234 actually is:
+1234 = ((1×10 + 2)×10 + 3)×10 + 4
+Now apply mod 17 to the whole thing:
+[((1×10 + 2)×10 + 3)×10 + 4] mod 17
+Using rule 1 (mod distributes over multiplication):
+= [((1×10 + 2)×10 + 3) mod 17 × 10 + 4] mod 17
+Using rule 2 (mod distributes over addition):
+= [((1×10 + 2)×10 mod 17 + 3) mod 17 × 10 + 4] mod 17
+Keep going inward... every intermediate result can have mod applied and the final answer is unchanged.
+
+The Key Intuition:
+Think of numbers on a clock face (mod 12):
+
+14 o'clock = 2 o'clock
+26 o'clock = 2 o'clock
+
+It doesn't matter when you "wrap around" the clock — if you wrap at every step or only at the end, you always land on the same position.
+
+Concrete Proof Step by Step:
+1234 mod 17
+
+= ((1×10 + 2)×10 + 3)×10 + 4) mod 17
+
+Step 1: 1 mod 17 = 1
+        ↓ same as not applying mod yet
+
+Step 2: (1×10 + 2) mod 17
+        = 12 mod 17 = 12
+        ↓ 
+        without mod: still 12 (number still small)
+
+Step 3: (12×10 + 3) mod 17
+        = 123 mod 17
+        = 123 - 7×17
+        = 123 - 119 = 4
+        ↓
+        WITHOUT mod at this step: number stays 123
+        WITH mod: shrinks to 4
+        
+Step 4: (4×10 + 4) mod 17    vs    (123×10 + 4) mod 17
+        = 44 mod 17                 = 1234 mod 17
+        = 44 - 2×17                 = 1234 - 72×17
+        = 44 - 34 = 10              = 1234 - 1224 = 10
+Both give 10! ✅
+
+Why This Matters for Your Code:
+Without Horner + mod at each step:
+0xC0FEBABE = 3,237,937,854  → too big for 32-bit register! overflows!
+With mod at each step:
+number never exceeds 17×10 + 9 = 179  → always fits! ✅
+That's the entire reason the technique exists — mathematical equivalence lets you keep numbers small.You said: explain the full eq of modulo applicATION ON THE EQ STEP BY STEP IN DETAIULexplain the full eq of modulo applicATION ON THE EQ STEP BY STEP IN DETAIUL28 AprClaude responded: Full Detailed Proof: Why Mod Can Be Applied at Each StepFull Detailed Proof: Why Mod Can Be Applied at Each Step
+
+Starting Point:
+We want to compute:
+1234 mod 17
+First, express 1234 using Horner's form:
+1234 = ((1×10 + 2)×10 + 3)×10 + 4
+
+Now Apply Mod 17 to the Whole Thing:
+[((1×10 + 2)×10 + 3)×10 + 4] mod 17
+
+Step 1 - Work From the Innermost Bracket
+Start with:
+(1×10 + 2) = 12
+Using the addition rule (a + b) mod c = ((a mod c) + b) mod c:
+(1×10 + 2) mod 17
+= ((1×10) mod 17 + 2) mod 17
+= (10 mod 17 + 2) mod 17
+= (10 + 2) mod 17
+= 12 mod 17
+= 12
+✅ Result after step 1 = 12
+
+Step 2 - Next Bracket Out
+Now we have:
+(12×10 + 3)
+Using the multiplication rule (a × b) mod c = ((a mod c) × b) mod c:
+(12×10 + 3) mod 17
+= ((12×10) mod 17 + 3) mod 17
+= ((12 mod 17 × 10) mod 17 + 3) mod 17
+Since 12 mod 17 = 12 (12 is less than 17):
+= ((12 × 10) mod 17 + 3) mod 17
+= (120 mod 17 + 3) mod 17
+Now 120 mod 17:
+120 ÷ 17 = 7 remainder 1
+7 × 17 = 119
+120 - 119 = 1
+So:
+= (1 + 3) mod 17
+= 4 mod 17
+= 4
+✅ Result after step 2 = 4
+
+Step 3 - Outermost Bracket
+Now we have:
+(4×10 + 4)
+Again using both rules:
+(4×10 + 4) mod 17
+= ((4×10) mod 17 + 4) mod 17
+= ((4 mod 17 × 10) mod 17 + 4) mod 17
+Since 4 mod 17 = 4:
+= ((4 × 10) mod 17 + 4) mod 17
+= (40 mod 17 + 4) mod 17
+Now 40 mod 17:
+40 ÷ 17 = 2 remainder 6
+2 × 17 = 34
+40 - 34 = 6
+So:
+= (6 + 4) mod 17
+= 10 mod 17
+= 10
+✅ Final Result = 10
+
+Verification - Without Horner (direct):
+1234 ÷ 17 = 72 remainder 10
+72 × 17 = 1224
+1234 - 1224 = 10
+✅ Same answer = 10
+
+Summary Table:
+StepExpressionAfter Mod 171(1×10 + 2)122(12×10 + 3) → 120+3=12343(4×10 + 4) → 40+4=4410
+
+The Two Rules Used Throughout:
+Rule 1: (a + b) mod c = ((a mod c) + b) mod c
+
+Rule 2: (a × b) mod c = ((a mod c) × b) mod c
+These two rules are what make it mathematically guaranteed that applying mod at every step gives the exact same result as applying it once at the end. The intermediate numbers just stay small, but the final remainder is always preserved.You said: what does 68 mod 97 meanwhat does 68 mod 97 mean28 AprClaude responded: 68 mod 9768 mod 97
+Simple Answer:
+68 mod 97 = 68
+
+Why?
+mod means "what is the remainder after dividing"
+68 ÷ 97 = 0 remainder 68
+97 is bigger than 68, so 97 goes into 68 zero times, leaving 68 itself as the remainder.
+
+Think of it like this:
+68 = 0 × 97 + 68
+      ↑          ↑
+  how many    remainder
+  times 97
+  fits in 68
+
+General Rule:
+if a < b  →  a mod b = a
+if a ≥ b  →  a mod b = a - (floor(a/b) × b)
+So:
+
+68 mod 97 = 68 (because 68 < 97)
+98 mod 97 = 1 (because 98 > 97, 98-97=1)
+97 mod 97 = 0 (because 97 divides exactly)
+You said: 5 9 0 5 0 1 0 1 0 0 1 2 3 4 5 6 7 8 1 3 1 4 9 8 mod 97 is5 9 0 5 0 1 0 1 0 0 1 2 3 4 5 6 7 8 1 3 1 4 9 8 mod 97 is28 AprClaude responded: 5 9 0 5 0 1 0 1 0 0 1 2 3 4 5 6 7 8 1 3 1 4 9 8 mod 975 9 0 5 0 1 0 1 0 0 1 2 3 4 5 6 7 8 1 3 1 4 9 8 mod 97
+The Full Number:
+590501010012345678131498
+Using Horner's Method step by step (×10 + next digit, mod 97 each time):
+StepDigitacc×10 + digitmod 97150×10 + 5 = 55295×10 + 9 = 59593059×10 + 0 = 590590 - 6×97 = 590-582 = 8458×10 + 5 = 85855085×10 + 0 = 850850 - 8×97 = 850-776 = 746174×10 + 1 = 741741 - 7×97 = 741-679 = 627062×10 + 0 = 620620 - 6×97 = 620-582 = 388138×10 + 1 = 381381 - 3×97 = 381-291 = 909090×10 + 0 = 900900 - 9×97 = 900-873 = 2710027×10 + 0 = 270270 - 2×97 = 270-194 = 7611176×10 + 1 = 761761 - 7×97 = 761-679 = 8212282×10 + 2 = 822822 - 8×97 = 822-776 = 4613346×10 + 3 = 463463 - 4×97 = 463-388 = 7514475×10 + 4 = 754754 - 7×97 = 754-679 = 7515575×10 + 5 = 755755 - 7×97 = 755-679 = 7616676×10 + 6 = 766766 - 7×97 = 766-679 = 8717787×10 + 7 = 877877 - 9×97 = 877-873 = 41884×10 + 8 = 484819148×10 + 1 = 481481 - 4×97 = 481-388 = 9320393×10 + 3 = 933933 - 9×97 = 933-873 = 6021160×10 + 1 = 601601 - 6×97 = 601-582 = 1922419×10 + 4 = 194194 - 2×97 = 194-194 = 02390×10 + 9 = 992489×10 + 8 = 9898 - 1×97 = 1
+
+Final Answer = 1
+For a valid IBAN, the result should be 1, so this number passes the IBAN check! ✅You said: how can I use iban2knr in validate check sum to access the knr and blz a1 and a2 repectiively to reform it only ans what i askedhow can I use iban2knr in validate check sum to access the knr and blz a1 and a2 repectiively to reform it only ans what i asked28 AprClaude responded: In validate_checksum, after calling iban2knr:In validate_checksum, after calling iban2knr:
+
+BLZ will be in a1 (8 bytes)
+KNR will be in a2 (10 bytes)
+
+So just call:
+asmcall iban2knr
+# now a1 = BLZ, a2 = KNR, ready to useYou said: if i use lhu ti extract 2 first ascii values from buffer will it ad extra xeros to start?if i use lhu ti extract 2 first ascii values from buffer will it ad extra xeros to start?28 AprClaude responded: lhu - Load Half Word Zero Extensionlhu - Load Half Word Zero Extension
+Yes, lhu will zero-extend to fill the 32-bit register, meaning:
+lhu t0, 0(a0)    # loads 2 bytes (16 bits)
+If your 2 bytes are D E (ASCII 68, 69):
+t0 = 0x00004445   ← two leading zero bytes added
+
+But this doesn't matter for you because:
+You're treating each byte as an ASCII digit/letter individually, not as a combined number. So you should be loading one byte at a time with lbu:
+asmlbu t0, 0(a0)    # load first character e.g. 'D' = 68
+lbu t1, 1(a0)    # load second character e.g. 'E' = 69
+lbu zero-extends too but only one byte at a time, which is what you want for processing each ASCII character through modulo_str.You said: then i need to store 2 digits of each ascii code into diff bytesthen i need to store 2 digits of each ascii code into diff bytes28 AprClaude responded: Storing 2 Digits of ASCII Code into Separate BytesStoring 2 Digits of ASCII Code into Separate Bytes
+For example D = ASCII 68, you need to split into 6 and 8:
+asmlbu  t0, 0(a0)      # load 'D' = 68
+
+# Extract tens digit (6)
+li   t1, 10
+div  t1, t0, t1     # t1 = 68 / 10 = 6
+
+# Extract units digit (2)
+li   t2, 10
+rem  t2, t0, t2     # t2 = 68 mod 10 = 8
+Then store them into your buffer:
+asmsb   t1, 0(dest)    # store '6' 
+sb   t2, 1(dest)    # store '8'
+
+But wait ⚠️
+Looking at your task — the slide said:
+
+Replace letters with numbers (A=10, B=11... Z=35)
+These are two digit numbers
+
+So your flow should be:
+
+Load each character with lbu
+If it's a letter → convert to number (e.g. D = 13, E = 14)
+Split into tens and units digit
+Feed each digit one at a time into modulo_str
+
+This way each letter becomes 2 separate digits in the modulo calculation.You said: is there a function to get ascii code of registers content only tell what i askis there a function to get ascii code of registers content only tell what i ask28 AprClaude responded: No, the ASCII code is already the value stored in the register when you use lbu.No, the ASCII code is already the value stored in the register when you use lbu.
+asmlbu t0, 0(a0)    # t0 already contains the ASCII codeYou said: so when i write lbu t1 0(a0 ) it is storing the ascii value for e.so when i write lbu t1 0(a0 ) it is storing the ascii value for e. for D28 AprClaude responded: Yes, lbu t1, 0(a0) stores 68 (ASCII code for 'D') directly into t1.Yes, lbu t1, 0(a0) stores 68 (ASCII code for 'D') directly into t1.You said: give me hints to how i can split the number given into two parts e.give me hints to how i can split the number given into two parts e.g 0x 00000013 into 1 and 3 sepa28 AprClaude responded: Hints:Hints:
+To get the tens digit (1):
+asmdiv  t1, t0, 10    # 19 / 10 = 1
+To get the units digit (3):
+asmrem  t2, t0, 10    # 19 mod 10 = 9
+wait — 0x13 in decimal is 19, so it splits into 1 and 9, not 1 and 3.
+If you meant the hex digits 1 and 3 separately that's a different operation using shifts and masks.
+Which did you mean — decimal digits or hex digits?You said: look at the 2 lines in my code and explain what it doeslook at the 2 lines in my code and explain what it does28 AprClaude responded: Looking at lines 13-14 in your code:Looking at lines 13-14 in your code:
+asmlhu  t1, ...
+lhu  t2, ...
+These load DE (the first two characters of the IBAN) as a half word each.
+But looking at the slide, DE needs to become:
+
+D = 13 → digits 1, 3
+E = 14 → digits 1, 4
+
+So the two lhu lines are loading the ASCII values of D and E, which you then need to:
+
+Subtract 55 to convert letter to number (e.g. 'D' = 68 - 55 = 13)
+Split into two digits using div and rem by 10
+
+The caution on the slide warns you cannot write outside the buffer — so you can't just append digits to the end, you need to process them in place using modulo_str directly on the digits as you go.You said: how do you know D rep 68how do you know D rep 6828 AprClaude responded: Because D is a character and when stored in memory it uses the ASCII standard which assigns every character a number:Because D is a character and when stored in memory it uses the ASCII standard which assigns every character a number:
+'A' = 65
+'B' = 66
+'C' = 67
+'D' = 68  ← 65 + 3
+'E' = 69
+Simple formula:
+any capital letter = 65 + (position in alphabet)
+A=0, B=1, C=2, D=3...
+
+so D = 65 + 3 = 68You said: is there a left shift operation in riscvis there a left shift operation in riscv28 AprClaude responded: Yes:Yes:
+asmsll  rd, rs1, rs2    # shift left by register value
+slli rd, rs1, imm    # shift left by immediate value
+Example:
+asmslli t0, t0, 1    # shift left by 1 = multiply by 2
+slli t0, t0, 2    # shift left by 2 = multiply by 4You said: what is the problem with my code here why modulo test giving afailwhat is the problem with my code here why modulo test giving afail29 AprClaude responded: Looking at your code, I can see two problems:Looking at your code, I can see two problems:
+Problem 1 - lw instead of lbu (line 27)
+asmlw t0 0(t1)    # ❌ loads 4 bytes at once
+Should be:
+asmlbu t0 0(t1)   # ✅ loads 1 byte (one ASCII digit)
+lw loads 4 bytes at once giving you a huge wrong number instead of one digit.
+
+Problem 2 - rem storing to wrong register (line 31)
+asmrem t3 a0 a2   # ❌ storing result in t3, not a0
+Should be:
+asmrem a0 a0 a2   # ✅ store back into accumulator
+The result of mod needs to go back into a0 (the accumulator), otherwise the next iteration multiplies the unmodded value.
+
+Also - line 38 looks suspicious
+asmaddi a0 t3 0   # why are you moving t3 into a0 at the end?
+If you fix line 31 to store directly into a0, you don't need this line at all.You said: still failed]still failed]29 AprClaude responded: The output 268435456 is suspiciously large.The output 268435456 is suspiciously large.
+Problem is addi t1 t1 4 (line 32)
+Your buffer contains ASCII digits (1 byte each), but you're advancing the pointer by 4 bytes each time — skipping 3 digits every iteration!
+Change to:
+asmaddi t1 t1 1    # advance by 1 byte, not 4
+
+Also check lines 16-18:
+asmsub t2 a1 t1    # length - 1
+add t3 a0 t2    # end address
+la  a1 t3       # a1 = end address
+a1 is the length passed in, but after sub and add you're computing end address correctly. However la a1 t3 should be mv a1 t3 since t3 is already an address not a label.
+
+explain the q thouroughly so i can start coding29 AprClaude responded: I can see this is a RISC-V assembly project for an IBAN Calculator.I can see this is a RISC-V assembly project for an IBAN Calculator. Let me break it down thoroughly.
+What is an IBAN?
+A German IBAN has exactly 22 characters in this format:
+D E P P B B B B B B B B K K K K K K K K K K
+PartCharactersPositionDescriptionCountry codeDEpos 0-1Always "DE" for GermanyCheck digitsPPpos 2-32-digit checksumBLZBBBBBBBBpos 4-11Bank code, 8 digitsKNRKKKKKKKKKKpos 12-21Account number, 10 digits
+So a real example: DE44500105175407324931
+
+Country: DE
+Check digits: 44
+BLZ: 50010517
+KNR: 5407324931
+
+
+Task 1: iban2knr — Extract BLZ and KNR (2 points)
+File: src/iban2knr.s
+You write a subroutine that receives 3 arguments:
+ArgRegisterWhat it isarg1a0Pointer to 22-char German IBAN stringarg2a1Pointer to output buffer for BLZ (8 chars)arg3a2Pointer to output buffer for KNR (10 chars)
+What your code must do:
+
+Read the IBAN from a0
+Copy characters at positions 4–11 into the BLZ buffer (a1)
+Copy characters at positions 12–21 into the KNR buffer (a2)
+
+Skeleton in pseudocode:
+iban2knr:
+    # Copy 8 bytes from (a0 + 4) into a1
+    # Copy 10 bytes from (a0 + 12) into a2
+    ret
+In RISC-V assembly, a byte copy loop looks like:
+asm# Copy BLZ: 8 bytes starting at offset 4
+addi t0, a0, 4      # t0 = &iban[4]
+mv   t1, a1         # t1 = &blz[0]
+li   t2, 8          # counter = 8
+
+copy_blz:
+    lb   t3, 0(t0)      # load byte from IBAN
+    sb   t3, 0(t1)      # store byte into BLZ buffer
+    addi t0, t0, 1
+    addi t1, t1, 1
+    addi t2, t2, -1
+    bnez t2, copy_blz   # loop until counter == 0
+Then do the same for KNR (offset 12, length 10).
+
+Key things to keep in mind
+
+ASCII only — all characters are single-byte ASCII (uppercase letters + digits)
+No null terminator handling is mentioned — but it's good practice to add \0 at the end of your output buffers
+Calling convention: arguments come in a0–a7, return value goes in a0, and you should save/restore any s registers you use
+The project is split into multiple tasks/files — each task is its own .s file with its own subroutine
+
+
+Would you like me to help you write the full RISC-V assembly for Task 1, or do you need to see the rest of the PDF pages first (it's 8 pages total)?You said: how is this code here and is it right?how is this code here and is it right?29 AprClaude responded: Analysis of Your iban2knr.Analysis of Your iban2knr.s Code
+Your approach is fundamentally wrong. Here's why:
+
+What your code is doing
+You're using lhu (load halfword unsigned = 2 bytes at a time) and trying to concatenate values with shifts and adds. This treats the IBAN as numeric data to be combined into registers.
+asmlhu  t1 4(a0)    # load 2 bytes as a 16-bit integer
+slli t1 t1 2     # shift left... why?
+lhu  t2 6(a0)    # load next 2 bytes
+add  t3 t1 t2    # add them together??
+This is arithmetic on ASCII characters, not copying strings. The result in t3 is a meaningless number, not a string.
+
+What the task actually wants
+The buffers a1 and a2 need to contain ASCII character strings, not packed integers. You need to copy bytes one by one (or carefully) into the output buffers.
+
+Also — mv a1 t3 is wrong
+asmmv a1 t3   # This OVERWRITES the pointer in a1 with garbage!
+a1 is a pointer to a buffer. You must write into that buffer, not replace the pointer. Same problem with a2.
+
+The correct approach
+asmiban2knr:
+    # --- Copy BLZ: 8 bytes from iban[4..11] into a1 ---
+    addi t0, a0, 4       # t0 points to iban[4]
+    li   t2, 8           # loop counter
+
+copy_blz:
+    lb   t3, 0(t0)       # load 1 byte from IBAN
+    sb   t3, 0(a1)       # store into BLZ buffer
+    addi t0, t0, 1       # advance source pointer
+    addi a1, a1, 1       # advance dest pointer
+    addi t2, t2, -1
+    bnez t2, copy_blz
+
+    # --- Copy KNR: 10 bytes from iban[12..21] into a2 ---
+    addi t0, a0, 12      # t0 points to iban[12]
+    li   t2, 10
+
+copy_knr:
+    lb   t3, 0(t0)
+    sb   t3, 0(a2)
+    addi t0, t0, 1
+    addi a2, a2, 1
+    addi t2, t2, -1
+    bnez t2, copy_knr
+
+    jr   ra
+
+Summary of mistakes
+IssueYour codeCorrectLoad sizelhu (2 bytes as integer)lb (1 byte as char)StoreNever stores anythingsb into bufferPointer usemv a1 t3 destroys the pointerWrite through the pointerLogicArithmetic on charsByte-by-byte memory copy
+Replace your entire TODO section with the corrected code above.You said: when to use mv or la or liwhen to use mv or la or li29 AprClaude responded: mv vs la vs li in RISC-Vmv vs la vs li in RISC-V
+
+li — Load Immediate (a constant number)
+asmli t0, 10        # t0 = 10
+li t2, 8         # t2 = 8  (e.g. loop counter)
+li a0, 0         # t0 = 0  (e.g. return value)
+Use when: you want to put a hardcoded number into a register.
+
+la — Load Address (address of a label)
+asmla a0, my_string    # a0 = memory address of my_string
+la t0, my_buffer    # t0 = pointer to some buffer
+Use when: you want a pointer to something in memory (a string, buffer, variable defined with .data).
+
+mv — Move (copy register to register)
+asmmv t1, a0        # t1 = a0  (copy the value of a0 into t1)
+mv a0, t3        # return t3 as return value
+Use when: you want to copy one register's value into another.
+
+Side by side comparison
+InstructionOperand typeExampleMeaningliconstant numberli t0, 8t0 = 8lalabel namela a0, bufa0 = address of bufmvanother registermv t1, a0t1 = whatever a0 holds
+
+A concrete example putting all 3 together
+asm.data
+    my_str: .string "DE44500105175407324931"
+
+.text
+main:
+    la  a0, my_str   # a0 = ADDRESS of the string in memory
+    li  t2, 22       # t2 = 22 (the length, a constant)
+    mv  t0, a0       # t0 = copy of a0 (save the pointer)
+
+Quick mental rule
+
+Number you typed? → li
+Label from .data? → la
+Another register? → mv
+You said: when do i use t1.when do i use t1...11,  a1...9 and s...29 AprClaude responded: RISC-V Register ConventionsRISC-V Register Conventions
+
+t registers — Temporaries (t0–t6)
+Use for: scratch work, loop counters, intermediate calculations — anything short-lived.
+asmli   t0, 8        # loop counter
+lb   t1, 0(a0)    # temp byte read
+addi t2, t2, -1   # arithmetic scratch
+
+❌ Not saved across function calls
+If you call another function, assume t registers get destroyed
+Use freely inside a single subroutine
+
+
+a registers — Arguments & Return values (a0–a7)
+Use for: passing arguments INTO a function, and returning values OUT.
+asm# Caller sets up arguments:
+la   a0, iban_buf    # arg 1 — IBAN pointer
+la   a1, blz_buf     # arg 2 — BLZ output pointer
+la   a2, knr_buf     # arg 3 — KNR output pointer
+call iban2knr
+
+# After the call, a0 holds the return value
+mv   t0, a0          # save return value before it's overwritten
+RegisterRolea0–a1Args 1–2, and return value(s)a2–a7Args 3–8
+
+❌ Not saved across calls — caller must save them if needed
+
+
+s registers — Saved registers (s0–s11)
+Use for: values that must survive across function calls.
+asmmv   s0, a0          # save the IBAN pointer safely
+call some_function   # a0/t0 might be destroyed — s0 is safe
+mv   a0, s0          # s0 still has the original value
+
+✅ Guaranteed preserved across function calls
+BUT you must save/restore them yourself at the start/end:
+
+asmmy_func:
+    addi sp, sp, -8     # make space on stack
+    sw   s0, 0(sp)      # save s0 before using it
+    sw   s1, 4(sp)      # save s1
+
+    mv   s0, a0         # now safe to use s0/s1
+    mv   s1, a1
+
+    # ... do work ...
+
+    lw   s0, 0(sp)      # restore s0
+    lw   s1, 4(sp)      # restore s1
+    addi sp, sp, 8
+    jr   ra
+
+Full picture
+GroupRegistersSaved across calls?Typical uset0–t67 regs❌ NoScratch/temp calculationsa0–a78 regs❌ NoFunction args + return values0–s1112 regs✅ YesLong-lived values, across callsra1 reg❌ NoReturn address (save if you call)sp1 reg✅ YesStack pointer
+
+Rule of thumb for your IBAN project
+Loop counters, byte reads    →  t registers
+Function arguments (buffers) →  a registers (they arrive in a0, a1, a2)
+Values you need after a call →  s registers (save on stack first!)
+Since your iban2knr doesn't call any other functions, you can get away with only t registers for the internal work.You said: jr ra means what and when to use itjr ra means what and when to use it29 AprClaude responded: jr ra — Jump to Return Addressjr ra — Jump to Return Address
+
+What it means
+asmjr ra
+
+ra = the return address register — automatically set by whoever called your function
+jr ra = "jump back to wherever I was called from"
+It's how you end a subroutine/function in RISC-V
+
+
+How it works in practice
+asm# In main (or a test), someone calls your function:
+call iban2knr        # this sets ra = "the next line after this"
+# ← jr ra brings execution back HERE
+
+# Inside iban2knr:
+iban2knr:
+    # ... do work ...
+    jr ra            # jump back to whoever called us
+call and jr ra are a pair — call sets ra, jr ra uses it.
+
+When to use it
+SituationWhat to doEnd of a simple subroutine (no inner calls)just jr raEnd of a function that called other functionssave/restore ra on stack first, then jr ra
+
+Simple case — your iban2knr
+Since you don't call any other functions inside, just end with:
+asmiban2knr:
+    # ... copy BLZ ...
+    # ... copy KNR ...
+    jr ra            # done, return to caller
+
+Dangerous case — if you call another function
+asmmy_func:
+    addi sp, sp, -4
+    sw   ra, 0(sp)   # SAVE ra before it gets overwritten
+
+    call other_func  # this overwrites ra!
+
+    lw   ra, 0(sp)   # RESTORE ra
+    addi sp, sp, 4
+    jr ra            # now safe to return
+If you forget to save ra before a call, it gets overwritten and jr ra jumps to the wrong place — your program crashes.
+
+One liner to remember
+
+call = "go there and remember where I am" → jr ra = "go back to where I was remembered"
+You said: check the codecheck the code30 AprClaude responded: Code Review of your new iban2knr.Code Review of your new iban2knr.s
+There are several bugs. Let me go through them:
+
+Bug 1 — la t3 8 is wrong (line 16)
+asmaddi a0 a0 4
+la t3 8        ❌  # la is for LABELS/addresses, not numbers!
+You want a number, so use li:
+asmaddi a0, a0, 4
+li   t3, 8     ✅
+
+Bug 2 — memcpy label is duplicated (lines 18 and 40)
+asmmemcpy:        # line 18 — BLZ copy
+...
+memcpy:        # line 40 — KNR copy ❌ DUPLICATE LABEL!
+Two labels with the same name will crash or cause undefined behavior. Rename them:
+asmmemcpy_blz:    ✅
+...
+memcpy_knr:    ✅
+Same problem with mc_loop — it appears twice (lines 23 and 45). Rename to mc_loop_blz and mc_loop_knr.
+
+Bug 3 — jr ra is in the middle of the function (line 32)
+asmmv_return:
+    jr ra      ❌  # This returns BEFORE copying KNR!
+The function returns after copying BLZ, never reaching the KNR copy. Remove this early return entirely.
+
+Bug 4 — addi a0 a0 10 is wrong (line 37)
+asmaddi a0 a0 10   ❌
+At this point a0 has already been modified by addi a0 a0 4 earlier. You can't just add 10 to get to KNR position. You need offset 12 from the original IBAN start.
+You need to save the original a0 at the beginning:
+asmiban2knr:
+    mv   t5, a0         # save original IBAN pointer
+    ...
+    # For KNR:
+    addi t0, t5, 12     # use saved original pointer + 12
+
+Bug 5 — la t3 10 (line 38)
+Same as Bug 1 — use li not la:
+asmli t3, 10    ✅
+
+Corrected full code
+asmiban2knr:
+    mv   t5, a0          # save original IBAN pointer
+
+    # --- Copy BLZ (8 bytes from offset 4) ---
+    addi t1, t5, 4       # source = iban + 4
+    mv   t0, a1          # target = blz buffer
+    add  t2, t1, 8       # last source = source + 8 (not included... wait)
+    # Actually use counter instead:
+    li   t2, 8
+
+blz_loop:
+    lbu  t4, 0(t1)
+    sb   t4, 0(t0)
+    addi t1, t1, 1
+    addi t0, t0, 1
+    addi t2, t2, -1
+    bnez t2, blz_loop
+
+    # --- Copy KNR (10 bytes from offset 12) ---
+    addi t1, t5, 12      # source = iban + 12
+    mv   t0, a2          # target = knr buffer
+    li   t2, 10
+
+knr_loop:
+    lbu  t4, 0(t1)
+    sb   t4, 0(t0)
+    addi t1, t1, 1
+    addi t0, t0, 1
+    addi t2, t2, -1
+    bnez t2, knr_loop
+
+    jr   ra
+
+Summary of all bugs
+LineBugFix16la t3 8li t3, 818 & 40duplicate memcpy labelrename to memcpy_blz / memcpy_knr23 & 45duplicate mc_loop labelrename to mc_loop_blz / mc_loop_knr32jr ra too earlyremove it, only return at the very end37addi a0 a0 10save original a0 at start, use addi t1, t5, 1238la t3 10li t3, 10You said: is 37 - 39  now fineis 37 - 39  now fine30 AprClaude responded: Looking at lines 37-39 on the right side:Looking at lines 37-39 on the right side:
+asmmv  a0 t5        # line 37
+addi a0 a0 10    # line 38
+li  t3 10        # line 39
+Still wrong. You have the same Bug 4 from before. You're using a0 when you should be using t1 as the source pointer. Also the memcpy_KNR block below (lines 41-44) has the old bugs too:
+asmmemcpy_KNR:
+    mv   t0 a2       # target ✅
+    mv   t1 a0       # source — but a0 is now corrupted
+    add  t2 a0 t3    # ❌ wrong, using a0 again
+
+The KNR section should be:
+asm# stores KNR in its place
+addi t1, t5, 12      # source = original IBAN + 12 (NOT a0!)
+mv   t0, a2          # target = KNR buffer
+li   t2, 10          # counter = 10
+
+mc_loop_KNR:
+    lbu  t4, 0(t1)
+    sb   t4, 0(t0)
+    addi t1, t1, 1
+    addi t0, t0, 1
+    addi t2, t2, -1
+    bnez t2, mc_loop_KNR
+
+jr ra
+The key point — never touch a0 again after the BLZ section. Always use t5 (where you saved the original pointer) to calculate offsets.
+Also I can see the test output shows 2222222222 which means it's outputting garbage — confirming the KNR copy is broken.You said: now is it rightnow is it right30 AprClaude responded: Looking at the right side, I can see two remaining bugs:Looking at the right side, I can see two remaining bugs:
+
+Bug 1 — Line 38: addi t5 t5 10 ❌
+asmaddi t5 t5 10    # ❌ This MODIFIES t5!
+You saved the original IBAN pointer in t5 — now you're destroying it. Use t1 as the source:
+asmaddi t1, t5, 12  # ✅ t1 = original + 12, t5 stays untouched
+
+Bug 2 — Line 52: bltu t1 t2 mc_loop ❌
+asmbltu t1 t2 mc_loop    # ❌ wrong label name!
+The KNR loop label is mc_loop_KNR, not mc_loop:
+asmbltu t1 t2 mc_loop_KNR    # ✅
+
+Also — lines 43-44 still look wrong
+asmmv  t1 t5        # t1 = original IBAN start (offset 0, not 12!)
+add t2 t5 t3     # t2 = t5 + 10 (wrong offset!)
+Should be:
+asmaddi t1, t5, 12  # source starts at offset 12
+add  t2, t1, t3  # last = source + 10
+
+The test output confirms it's still failing — actual output is blank/wrong. Fix those three lines and it should pass.You said: is it correct nowis it correct now30 AprClaude responded: Still bugs.Still bugs. Looking at the right side carefully:
+
+Bug 1 — Lines 38-39: mv a0 t5 then addi t1 a0 12 ❌
+asmmv   a0 t5        # why copy t5 into a0??
+addi t1 a0 12     # then use a0 instead of t5 directly
+Just do it directly:
+asmaddi t1, t5, 12   # ✅ skip the mv entirely
+
+Bug 2 — Lines 44-45: still wrong
+asmmv  t1 a0         # ❌ a0 is corrupted, not the original IBAN!
+add t2 a0 t3      # ❌ same problem
+Should be:
+asm# DELETE these two lines — t1 is already set by addi t1 t5 12 above
+add t2, t1, t3    # last = t1 + 10 ✅
+
+Bug 3 — Line 53: bltu t1 t2 mc_loop ❌
+asmbltu t1 t2 mc_loop    # ❌ still wrong label!
+asmbltu t1, t2, mc_loop_KNR    # ✅
+
+What the KNR section should look like in full:
+asm# stores KNR in its place
+addi t1, t5, 12      # source = original IBAN + 12
+mv   t0, a2          # target = KNR buffer
+li   t3, 10
+add  t2, t1, t3      # last = source + 10
+
+mc_loop_KNR:
+    lbu  t4, 0(t1)
+    sb   t4, 0(t0)
+    addi t0, t0, 1
+    addi t1, t1, 1
+    bltu t1, t2, mc_loop_KNR
+
+jr ra
+Delete lines 38 (mv a0 t5), fix line 39, fix lines 44-45, fix line 53 — then it should pass.    .data
+
+    .globl iban2knr
+    .text
+# -- iban2knr
+# Arguments:
+# a0: IBAN buffer (22 bytes)
+# a1: BLZ buffer (8 bytes)
+# a2: KNR buffer (10 bytes)
+iban2knr:
+# TODO
+    
+    mv t5 a0
+
+# stores BLZ inits place
+    # length of BLZ
+    addi a0 a0 4
+    li t3 8
+
+    memcpy_BLZ:
+    mv      t0 a1         # current target
+    mv      t1 a0         # current source
+    add     t2 a0 t3      # last source
+
+    mc_loop_BLZ:
+    # copy over 1 byte from source to target
+        lbu     t4 0(t1)
+        sb      t4 0(t0)
+        addi    t0 t0 1
+        addi    t1 t1 1
+        bltu    t1 t2 mc_loop_BLZ # while current source != last
+
+    
+
+
+# stores KNR in its place
+    # length of KLNR
+    mv a0 t5
+    addi a0 a0 12
+    li t3 10
+
+    memcpy_KNR:
+    mv      t0 a2         # current target
+    mv      t1 a0         # current source
+    add     t2 a0 t3      # last source
+
+    mc_loop_KNR:
+    # copy over 1 byte from source to target
+        lbu     t4 0(t1)
+        sb      t4 0(t0)
+        addi    t0 t0 1
+        addi    t1 t1 1
+        bltu    t1 t2 mc_loop_KNR # while current source != last
+
+    mv_return_KNR:
+    jr      ra
+
+
+    jr     ra
+                   check this code and tell what is wrong with logicShow more30 AprClaude responded: Looking at your full code, there are 2 remaining issues:Looking at your full code, there are 2 remaining issues:
+
+Bug 1 — You're modifying a0 instead of using t5
+BLZ section:
+asmaddi a0 a0 4      # ❌ modifies a0
+add  t2 a0 t3     # uses corrupted a0
+mv   t1 a0        # uses corrupted a0
+KNR section:
+asmmv   a0 t5        # restores a0... ok but unnecessary
+addi a0 a0 12     # ❌ modifies a0 again
+mv   t1 a0        # uses a0
+add  t2 a0 t3     # uses a0
+You saved the original in t5 — use it directly, never touch a0:
+asm# BLZ
+addi t1, t5, 4    # source = original + 4 ✅
+add  t2, t1, t3   # last = source + 8 ✅
+
+# KNR  
+addi t1, t5, 12   # source = original + 12 ✅
+add  t2, t1, t3   # last = source + 10 ✅
+
+Bug 2 — Double jr ra at the end
+asmmv_return_KNR:
+    jr ra     # returns here
+    jr ra     # ❌ dead code, never reached
+Just keep one jr ra.
+
+Fully corrected code:
+asmiban2knr:
+    mv t5, a0             # save original IBAN pointer
+
+    # --- BLZ: 8 bytes from offset 4 ---
+    addi t1, t5, 4        # source = iban + 4
+    mv   t0, a1           # target = BLZ buffer
+    li   t3, 8
+    add  t2, t1, t3       # last = source + 8
+
+mc_loop_BLZ:
+    lbu  t4, 0(t1)
+    sb   t4, 0(t0)
+    addi t0, t0, 1
+    addi t1, t1, 1
+    bltu t1, t2, mc_loop_BLZ
+
+    # --- KNR: 10 bytes from offset 12 ---
+    addi t1, t5, 12       # source = iban + 12
+    mv   t0, a2           # target = KNR buffer
+    li   t3, 10
+    add  t2, t1, t3       # last = source + 10
+
+mc_loop_KNR:
+    lbu  t4, 0(t1)
+    sb   t4, 0(t0)
+    addi t0, t0, 1
+    addi t1, t1, 1
+    bltu t1, t2, mc_loop_KNR
+
+    jr ra
+The memcpy_BLZ and memcpy_KNR labels are also unnecessary — you can remove them. The key fix is never modifying a0, always computing offsets from t5.You said: ur code also uses t5 againur code also uses t5 again30 AprClaude responded: You're right!You're right! In my corrected code I use t5 to save a0, but then the loops use t0, t1, t2, t3, t4 — t5 is only read, never overwritten in the loops, so it's actually fine.
+Let me trace through to prove it:
+asmmv t5, a0          # t5 = original IBAN pointer, set ONCE
+
+# BLZ
+addi t1, t5, 4    # READ t5 — t5 unchanged ✅
+...loop uses t0,t1,t2,t3,t4 only...
+
+# KNR
+addi t1, t5, 12   # READ t5 again — still unchanged ✅
+...loop uses t0,t1,t2,t3,t4 only...
+Registers used:
+RegisterRolet5saved IBAN pointer — never written after line 1t0target pointer (changes in loop)t1source pointer (changes in loop)t2end boundaryt3length (8 or 10)t4temp byte being copied
+So t5 is safe — it's only ever read to compute offsets, never modified. The code is correct as written.You said: how to delte this stuff from my termianlhow to delte this stuff from my termianl30 AprClaude responded: Those lines in the terminal are just leftover text you typed or pasted — to clear it:Those lines in the terminal are just leftover text you typed or pasted — to clear it:
+Press Ctrl + C first to cancel any input, then:
+clear
+Or just press Ctrl + L — that clears the terminal instantly.    .data
+
+    .globl iban2knr
+    .text
+# -- iban2knr
+# Arguments:
+# a0: IBAN buffer (22 bytes)
+# a1: BLZ buffer (8 bytes)
+# a2: KNR buffer (10 bytes)
+iban2knr:
+# TODO
+
+    mv     t5 a0
+
+# stores BLZ inits place
+# length of BLZ
+    addi   t5 t5 4
+    li     t3 8
+
+memcpy_BLZ:
+    mv     t0 a1             # current target
+    mv     t1 t5             # current source
+    add    t2 t5 t3          # last source
+
+mc_loop_BLZ:
+# copy over 1 byte from source to target
+    lbu    t4 0(t1)
+    sb     t4 0(t0)
+    addi   t0 t0 1
+    addi   t1 t1 1
+    bltu   t1 t2 mc_loop_BLZ # while current source != last
+
+
+# stores KNR in its place
+# length of KLNR
+    
+    addi   t5 t5 12
+    li     t3 10
+
+memcpy_KNR:
+    mv     t0 a2             # current target
+    mv     t1 t5             # current source
+    add    t2 a0 t3          # last source
+
+mc_loop_KNR:
+# copy over 1 byte from source to target
+    lbu    t4 0(t1)
+    sb     t4 0(t0)
+    addi   t0 t0 1
+    addi   t1 t1 1
+    bltu   t1 t2 mc_loop_KNR # while current source != last
+
+
+    jr     ra
+              still not apssing testShow more30 AprClaude responded: Found it!Found it! Two bugs:
+
+Bug 1 — You're modifying t5 twice
+asmmv   t5 a0
+addi t5 t5 4    # t5 is now iban+4
+...
+addi t5 t5 12   # t5 is now iban+4+12 = iban+16 ❌ WRONG!
+You want iban+12 but you're getting iban+16. Fix by saving original separately:
+asmmv   t5 a0       # t5 = original, NEVER touch again
+addi t1 t5 4     # t1 = iban+4 for BLZ
+
+Bug 2 — Line add t2 a0 t3 in KNR section
+asmadd t2 a0 t3    # ❌ using a0 instead of t5
+Should be:
+asmadd t2 t1 t3    # ✅ last = source + 10
+
+Fully corrected:
+asmiban2knr:
+    mv     t5 a0          # save original, NEVER modify t5
+
+    # BLZ
+    addi   t1 t5 4        # source = iban+4
+    mv     t0 a1          # target
+    li     t3 8
+    add    t2 t1 t3       # last = source+8
+
+mc_loop_BLZ:
+    lbu    t4 0(t1)
+    sb     t4 0(t0)
+    addi   t0 t0 1
+    addi   t1 t1 1
+    bltu   t1 t2 mc_loop_BLZ
+
+    # KNR
+    addi   t1 t5 12       # source = iban+12 (from original!)
+    mv     t0 a2          # target
+    li     t3 10
+    add    t2 t1 t3       # last = source+10
+
+mc_loop_KNR:
+    lbu    t4 0(t1)
+    sb     t4 0(t0)
+    addi   t0 t0 1
+    addi   t1 t1 1
+    bltu   t1 t2 mc_loop_KNR
+
+    jr     ra
+The golden rule: t5 is set once at the top and only ever read, never written again.You said: what could the uissue bewhat could the uissue be30 AprClaude responded: Good progress!Good progress! BLZ is now correct (11111111 ✅) but KNR only outputs 2 instead of 2222222222.
+Looking at lines 43-44:
+asmmv  t1 t5    # ❌ t5 is iban+4 from the BLZ section!
+add t2 t5 t3 # ❌ same problem
+t5 was modified in the BLZ setup — it's no longer the original pointer. You didn't apply my last fix. You need a separate register to permanently hold the original:
+asmiban2knr:
+    mv   s0 a0        # s0 = original IBAN, NEVER touched again
+
+    # BLZ
+    addi t1 s0 4      # source = original + 4
+    mv   t0 a1
+    li   t3 8
+    add  t2 t1 t3
+
+mc_loop_BLZ:
+    lbu  t4 0(t1)
+    sb   t4 0(t0)
+    addi t0 t0 1
+    addi t1 t1 1
+    bltu t1 t2 mc_loop_BLZ
+
+    # KNR
+    addi t1 s0 12     # source = original + 12 ✅
+    mv   t0 a2
+    li   t3 10
+    add  t2 t1 t3
+
+mc_loop_KNR:
+    lbu  t4 0(t1)
+    sb   t4 0(t0)
+    addi t0 t0 1
+    addi t1 t1 1
+    bltu t1 t2 mc_loop_KNR
+
+    jr   ra
+I switched to s0 instead of t5 — since s0 is never used in the loops, it stays safe. This should fix it.You said: what deos the debugger left 0x 00 rep and when i am debugging right after the to line it makes no diff to t0?what deos the debugger left 0x 00 rep and when i am debugging right after the to line it makes no diff to t0?30 AprClaude responded: Two questions answered:Two questions answered:
+
+1. What does 0x00000000 mean?
+Those are just the current values of registers at this moment in execution. Since the debugger is paused at line 23 (before the loops run), most registers haven't been set yet — so they show 0x00000000 (zero).
+As you step through, you'll see them change:
+
+t5 should show 0x00000004 after addi t5 t5 4
+t1 should get the IBAN address after mv t1 t5
+etc.
+
+
+2. Why does t0 not change after mv t0 a1?
+Look at the left panel:
+x11 (a1) = 0x00000000
+a1 is zero! So mv t0 a1 copies zero into t0 — which is why nothing changes.
+This means the test hasn't set up a1 properly before calling your function, OR you're debugging manually without setting up the arguments first.
+When running via python run_tests.py the arguments are set correctly. The debugger here is just running the function in isolation with no arguments loaded.
+Don't worry about the debugger values — just run python run_tests.py in the terminal to see if it actually passes. The zero values are expected when debugging without a proper test harness.You said: the jr line is beimng shown up and not exactly in place as on right so is it a problem although passed my testthe jr line is beimng shown up and not exactly in place as on right so is it a problem although passed my test30 AprClaude responded: I can see the issue clearly from image 2:I can see the issue clearly from image 2:
+The left file (iban2knr.s) only has jr ra on line 11 — it's completely empty/different from the right file (Working Tree)!
+You have two different versions of the file open:
+
+Left = old saved version (just jr ra, nearly empty)
+Right = your working tree with all the code
+
+
+What's happening
+The test is running the left/saved version which is basically empty — it just returns immediately with jr ra doing nothing. That's why test_knr2iban is erroring with value 255.
+
+Fix
+Save your working tree file. Press Ctrl + S on the right file, or click the dot ● next to iban2knr.s (Working Tree) in the tab — that dot means unsaved changes.
+After saving, run the tests again:
+python run_tests.py
+The working tree version (right side) looks correct — once saved it should pass.You said: what deos this code do especially at line 32 toll 38'what deos this code do especially at line 32 toll 38'30 AprClaude responded: What this code does — inttobufWhat this code does — int_to_buf
+This function converts a number into a decimal string, writing it backwards (from last digit to first).
+
+Overall idea
+Given a number like 1234, it extracts digits one by one from the right:
+1234 % 10 = 4  → write '4'
+1234 / 10 = 123
+123  % 10 = 3  → write '3'
+...etc
+
+Line by line (32–38)
+asmmv   t3 t0        # line 32 — t3 = copy of current number
+div  t0 t0 t5     # line 33 — t0 = t0 / 10  (shift right one digit)
+mul  t4 t0 t5     # line 34 — t4 = (t0/10) * 10
+After line 34: t4 = number with last digit removed × 10
+e.g. 1234/10=123, 123*10=1230
+asm# t3 = t3 - ((t3/10)*10)   → extracts last digit
+sub  t3 t3 t4     # line 37 — t3 = 1234 - 1230 = 4  ← the last digit!
+This is essentially t3 = t3 % 10 — modulo without using a mod instruction.
+asmaddi t3 t3 '0'    # line 39 — convert digit to ASCII ('0'=48, so 4→'4')
+sb   t3 0(t1)     # line 40 — store the ASCII character into buffer
+
+Why lines 32-34 instead of just rem?
+RISC-V has rem instruction, but this code manually computes a % b as:
+a % b = a - ((a/b) * b)
+Some RISC-V environments don't support rem, so this is a safe alternative.
+
+Full flow summary
+LineOperationPurpose32mv t3 t0save current number33div t0 t0 t5number ÷ 10 (advance to next digit)34mul t4 t0 t5(number÷10) × 1037sub t3 t3 t4original − floored = last digit39addi t3 t3 '0'digit → ASCII character40sb t3 0(t1)write character to bufferYou said: why is colons used around 0 on line 39 \why is colons used around 0 on line 39 \30 AprClaude responded: On line 39:On line 39:
+asmaddi t3 t3 '0'
+The single quotes around '0' mean "the ASCII value of the character 0", which is the number 48.
+So it's identical to writing:
+asmaddi t3 t3 48
+
+Why do this?
+Digits 0–9 in ASCII are:
+CharacterASCII value'0'48'1'49'2'50......'9'57
+So if t3 = 4 (the digit), adding '0' gives 4 + 48 = 52, which is the ASCII code for '4'. This converts a raw number into a printable character.
+
+Using '0' vs 48
+'0' is just more readable — it makes it obvious you're doing a digit-to-ASCII conversion rather than adding a random magic number. Both work exactly the same way in RISC-V assembly.You said: how to write a left shift slli e.how to write a left shift slli e.g if i want to left shift whole iban number to left 6 stepsso i have free 6 spaces at bottom30 AprClaude responded: slli — Shift Left Logical Immediateslli — Shift Left Logical Immediate
+asmslli t0, t0, 6    # t0 = t0 shifted left by 6 bits
+
+But wait — for IBAN this is the WRONG approach
+slli works on numbers/integers in a register — it shifts bits, not characters.
+You can't shift an entire 22-character string left with slli because:
+
+The IBAN is a string in memory spread across 22 bytes
+A register is only 4 bytes (32 bits) — can't hold the whole IBAN
+Shifting bits ≠ moving characters
+
+
+What you actually want — move string characters
+If you want to shift the IBAN string left by 6 positions in memory (so characters move from position 6→0, 7→1 etc.), you need a byte copy loop:
+asm# shift IBAN string left by 6 — copy iban[6..21] to iban[0..15]
+addi t1, a0, 6    # source = iban + 6
+mv   t0, a0       # target = iban + 0
+li   t2, 16       # 22 - 6 = 16 characters to move
+
+shift_loop:
+    lbu  t3, 0(t1)
+    sb   t3, 0(t0)
+    addi t1, t1, 1
+    addi t0, t0, 1
+    addi t2, t2, -1
+    bnez t2, shift_loop
+
+What are you trying to do exactly?
+If you tell me why you need 6 free spaces, I can give you the exact right approach for your IBAN project.You said: what so the new line str mean herewhat so the new line str mean here30 AprClaude responded: newlinestr in the .newlinestr in the .data section
+asmnewlinestr:
+    .asciiz "\n"
+It's just a newline character stored in memory — like pressing Enter. \n is the ASCII code 10.
+
+Why it exists
+In RISC-V you can't just print "\n" directly. You need to store it as a labeled string in .data and then load its address to print it:
+asmla   a1, newlinestr    # load address of "\n"
+li   a0, 4             # syscall 4 = print string
+ecall                  # prints a newline
+
+You can see it used in println (utils.s lines 109-111):
+asmprintln:
+    mv   a1 a0         # save original string address
+    li   a0 4
+    ecall              # print the actual string first
+    la   a1 newlinestr # then load the newline
+    li   a0 4
+    ecall              # print "\n" after it
+    jr   ra
+So println = print your string + automatically add a newline at the end.
+
+In short
+LabelValuePurposenewlinestr"\n"Used to print a newline/line break to consoleinvalidstr"Invalid input!\n"Error messageibanstr"IBAN: "Label printed before IBAN outputYou said: what is read buf really doing herewhat is read buf really doing here30 AprClaude responded: What readbuf does here in validate_checksumWhat readbuf does here in validate_checksum
+
+What readbuf is (from utils.s)
+It reads a string from the console (keyboard input) and stores it into a buffer in memory. Like scanf in C.
+asm# readbuf arguments:
+# a0 = address of buffer to write into
+# a1 = max number of characters to read
+
+What your code is doing (lines 15–26)
+asmaddi sp sp -8      # make space on stack (8 bytes)
+sw   ra 0(sp)      # save return address
+sw   a0 4(sp)      # save a0 (the IBAN buffer address)
+
+li   a1 18         # read max 18 characters
+addi a0 a0 4       # skip first 4 chars of IBAN (skip "DE" + check digits)
+                   # so we read starting at the BLZ position
+
+call readbuf       # read from keyboard into buffer
+
+lw   a0 0(sp)      # restore a0 (original IBAN pointer)
+lw   ra 0(sp)      # ❌ BUG — restoring ra from wrong offset!
+addi sp sp 8       # restore stack
+
+Wait — there's a bug on line 25!
+asmsw  ra  0(sp)      # saved ra at offset 0
+sw  a0  4(sp)      # saved a0 at offset 4
+...
+lw  a0  0(sp)      # ❌ loads ra's slot into a0!
+lw  ra  0(sp)      # ❌ same slot again!
+Should be:
+asmlw  ra  0(sp)      # restore ra from offset 0 ✅
+lw  a0  4(sp)      # restore a0 from offset 4 ✅
+addi sp sp 8
+
+But also — why is readbuf here at all?
+validate_checksum takes an IBAN as argument (a0). It shouldn't be reading from the keyboard — that's main's job. This readbuf call looks like it doesn't belong here and could be leftover/misplaced code.
+What exactly is the task description for validate_checksum?You said: what deoos sw do and sbwhat deoos sw do and sb30 AprClaude responded: sw vs sb — Store Word vs Store Bytesw vs sb — Store Word vs Store Byte
+
+sb — Store Byte (1 byte = 8 bits)
+asmsb t0, 0(a1)    # store lowest 8 bits of t0 into memory at address a1
+
+Writes 1 byte to memory
+Used for characters/ASCII — since each char is 1 byte
+You've been using this to copy IBAN characters
+
+
+sw — Store Word (4 bytes = 32 bits)
+asmsw ra, 0(sp)    # store all 32 bits of ra into memory at address sp
+
+Writes 4 bytes to memory
+Used for full register values — addresses, numbers, return addresses
+You use this to save registers onto the stack
+
+
+Side by side
+InstructionBytes writtenUsed forsb t0, 0(sp)1 byteASCII characterssh t0, 0(sp)2 byteshalfword (rare)sw t0, 0(sp)4 bytesfull register, addresses, integers
+
+Concrete example
+asm# Saving registers to stack — use sw (full 32-bit values)
+addi sp, sp, -8
+sw   ra, 0(sp)      # ra is a full address — needs all 4 bytes
+sw   a0, 4(sp)      # a0 is a pointer — needs all 4 bytes
+
+# Copying string characters — use sb (1 byte per char)
+lb   t0, 0(a0)      # load 1 character
+sb   t0, 0(a1)      # store 1 character
+
+Simple rule
+
+Characters → sb
+Registers/pointers/numbers → sw
+You said: so does sw a0 4(sp)  store the value stored at a0 or adress of a0so does sw a0 4(sp)  store the value stored at a0 or adress of a030 AprClaude responded: sw a0, 4(sp) stores the value inside a0sw a0, 4(sp) stores the value inside a0
+
+a0 is a register. sw just takes whatever number is currently sitting in that register and writes it to memory.
+asmsw a0, 4(sp)    # takes the VALUE of a0 and writes it to memory at (sp+4)
+
+So what IS the value of a0 here?
+In your case a0 holds a memory address (pointer to the IBAN buffer). So you're storing the address number itself — not what's at that address.
+a0 = 0x10000050  (address of IBAN buffer)
+
+sw a0, 4(sp)  →  writes 0x10000050 into memory at sp+4
+
+If you wanted to store what a0 POINTS TO, you'd need two steps:
+asmlw  t0, 0(a0)    # first load the value FROM the address in a0
+sw  t0, 4(sp)    # then store that value
+
+Simple analogy
+
+a0 is like a piece of paper with a house address written on it
+sw a0, 4(sp) = photocopy that piece of paper and put it in your pocket
+It copies the address number, not the house contents
+You said: just explain what does the lw from line 16 - 19 dojust explain what does the lw from line 16 - 19 do30 AprClaude responded: Lines 16–19 explainedLines 16–19 explained
+asmlw  t0 0(a0)     # line 16
+sw  t0 4(sp)     # line 17
+addi a0 a0 1     # line 18
+addi t1 t1 1     # line 19
+
+Line 16 — lw t0, 0(a0)
+Loads 4 bytes from the memory address in a0 into t0.
+Since a0 points to the IBAN string, this loads the first 4 characters of the IBAN at once as a single 32-bit value.
+IBAN = "DE44500105..."
+lw t0, 0(a0)  →  t0 = 'D','E','4','4' packed into one register
+
+Line 17 — sw t0, 4(sp)
+Saves that 4-byte value onto the stack at offset 4.
+
+Line 18 — addi a0, a0, 1
+Moves the IBAN pointer forward by 1 character.
+
+Line 19 — addi t1, t1, 1
+Increments t1 by 1 — looks like a counter or second pointer being advanced.
+
+⚠️ But this looks wrong
+lw loads 4 bytes at once but then you only advance by 1 byte. That's inconsistent — you're either copying 4 bytes or 1 byte, not both.
+What are you actually trying to do on these lines? That would help figure out if the logic is correct.    .data
+    .globl validate_checksum
+    .text
+
+# -- validate_checksum --
+# Arguments:
+# a0 : Address of a string containing a german IBAN (22 characters)
+# Return:
+# a0 : the checksum of the IBAN
+validate_checksum:
+# TODO
+
+# Stroring Country code
+    lb  t0 0(a0)
+    lb  t1 1(a0)
+    lb  t2 2(a0)
+    lb  t3 3(a0)
+
+    addi sp sp -24
+    
+    sw  t0 0(sp)
+    sw  t1 4(sp)
+    sw  t2 8(sp)
+    sw  t3 12(sp)
+    
+# Shifting all bits of BLZ & KNR to left 
+
+    sw   a0 16(sp)
+    sw   ra 20(sp)
+
+    li   a2 18    # a2: number of characters
+    addi a1 a0 4  # Source bytes
+    sub  a0 a0 2  # a0: target address
+
+    call   memcpy
+
+    lw   t0 0(sp)  # D
+    lw   t1 4(sp)  # E
+    lw   t2 8(sp)  # 6
+    lw   t3 12(sp) # 8
+    lw   a0 16(sp)
+    lw   ra 20(sp)
+    addi sp sp 24
+
+# converting ascii to decimal
+    li   t6 100
+    sub  t0 t0 65 # 3
+    addi t0 t0 10 # 13
+
+    mul  t0 t0 t6
+
+    sub  t1 t0 65 # 4
+    addi t1 t0 10 # 14
+
+    add  t4 t0 t1 #+ve number
+
+# storing ascii numbers from 16 - 20
+    
+    addi sp sp -4
+    sw   ra 0(sp)
+    sw   a0 4(sp)
+    sw   t4 8(sp)
+    sw   t3 12(sp)
+
+    addi a0 a0 16
+    li   a1 a0        #target adress (16)
+    li   a2 4
+    mv   a0 t2 
+
+    call ib_loop
+
+
+     lw   t4 8(sp)
+    lw   t3 12(sp)
+    lw   ra 0(sp)
+    lw   a0 4(sp)
+    addi sp sp 4
+
+#store checksum
+
+    mv   t6 a0 
+    addi t6 t6 21
+    sw   t2 0(t6)
+    addi t6 t6 1
+    sw   t3 0(t6)
+
+
+    addi sp sp -8
+    sw   ra 0(sp)
+    sw   a0 4(sp)
+
+    li   a1 24
+    li   a2 97
+    call moduloStr
+
+    lw   ra 0(sp)
+    lw   a0 4(sp)
+
+
+
+
+
+
+
+
+
+
+    jr     ra
+written this codeand the ss is the module ive used in between as well to call kindly tellm e what is wrong and hel mefix all bugsShow more1 MayClaude responded: There are many bugs.There are many bugs. Let me go through them systematically:
+
+Bug 1 — Stack setup is wrong (around line "storing ascii numbers")
+asmaddi sp sp -4      # only allocate 4 bytes
+sw   ra 0(sp)
+sw   a0 4(sp)      # ❌ writing at offset 4 but only allocated 4!
+sw   t4 8(sp)      # ❌ offset 8 — way out of bounds!
+sw   t3 12(sp)     # ❌ offset 12 — even worse!
+You need to allocate enough space:
+asmaddi sp sp -16     # 4 registers × 4 bytes = 16
+sw   ra  0(sp)
+sw   a0  4(sp)
+sw   t4  8(sp)
+sw   t3 12(sp)
+
+Bug 2 — li used instead of mv and wrong address calculation
+asmaddi a0 a0 16
+li   a1 a0        # ❌ li takes a NUMBER not a register!
+li   a2 4
+mv   a0 t2
+Should be:
+asmaddi a1 a0 16     # a1 = target address (iban + 16)
+li   a2 4         # 4 digits
+mv   a0 t2        # number to convert
+
+Bug 3 — Converting D and E from ASCII is wrong
+asmsub  t0 t0 65     # ❌ subtracting 65 from t0 directly
+addi t0 t0 10
+
+mul  t0 t0 t6
+
+sub  t1 t0 65     # ❌ subtracting from t0 not t1!
+addi t1 t0 10     # ❌ using t0 not t1!
+The correct ASCII→IBAN letter conversion is letter - 'A' + 10:
+asmli   t5 65        # 'A' = 65
+sub  t0 t0 t5     # D - 'A' = 3
+addi t0 t0 10     # 3 + 10 = 13
+
+li   t6 100
+mul  t0 t0 t6     # 13 * 100
+
+sub  t1 t1 t5     # E - 'A' = 4  (use t1 not t0!)
+addi t1 t1 10     # 4 + 10 = 14
+
+add  t4 t0 t1     # 1300 + 14 = 1314
+
+Bug 4 — sw used instead of sb for storing checksum chars
+asmsw t2 0(t6)    # ❌ stores 4 bytes, corrupts neighbouring chars
+sw t3 0(t6)    # ❌ same
+Should be:
+asmsb t2 0(t6)    # ✅ store 1 byte
+sb t3 1(t6)    # ✅ store next byte
+
+Bug 5 — moduloStr call is missing save/restore and wrong args
+asmli  a1 24      # length of string
+li  a2 97      # modulo 97
+call moduloStr
+You need to pass a0 = address of the rearranged IBAN string. Make sure a0 still points to the IBAN buffer at this point.
+
+Bug 6 — Stack restore mismatch at the end
+asmaddi sp sp -8
+sw   ra 0(sp)
+sw   a0 4(sp)
+...
+lw   ra 0(sp)
+lw   a0 4(sp)
+# ❌ missing: addi sp sp 8
+jr   ra
+Add addi sp sp 8 before jr ra.
+
+Correct overall structure should be:
+asmvalidate_checksum:
+    # 1. Save ra and a0
+    addi sp sp -8
+    sw   ra 0(sp)
+    sw   a0 4(sp)
+
+    # 2. Load country code chars (D, E, check1, check2)
+    lb   t0 0(a0)    # 'D'
+    lb   t1 1(a0)    # 'E'
+    lb   t2 2(a0)    # check digit 1
+    lb   t3 3(a0)    # check digit 2
+
+    # 3. Shift iban[4..21] left to iban[0..17] using memcpy
+    lw   a0 4(sp)    # restore original pointer
+    mv   a1 a0       # target = iban[0]  (NOT iban-2!)
+    addi a1 a0 0
+    addi a0 a0 4     # source = iban[4]
+    li   a2 18
+    call memcpy
+
+    # 4. Convert D,E to numbers and append at positions 18,19
+    lw   a0 4(sp)
+    li   t5 65
+    sub  t0 t0 t5    # D → 13
+    addi t0 t0 10
+    sub  t1 t1 t5    # E → 14
+    addi t1 t1 10
+
+    # 5. Write converted country code digits to buffer positions 18-21
+    addi t6 a0 18
+    # use int_to_buf or manual store for t0(13), t1(14), t2, t3
+
+    # 6. Call moduloStr on the 22-char rearranged string
+    mv   a0 ...      # pointer to rearranged string
+    li   a1 22
+    li   a2 97
+    call moduloStr
+
+    # 7. Return result
+    lw   ra 0(sp)
+    addi sp sp 8
+    jr   ra
+
+Can you share the full task description for validate_checksum? That would help make sure the algorithm steps are in the right order too.    .data
+    .globl validate_checksum
+    .text
+
+# -- validate_checksum --
+# Arguments:
+# a0 : Address of a string containing a german IBAN (22 characters)
+# Return:
+# a0 : the checksum of the IBAN
+validate_checksum:
+# TODO
+
+# Stroring Country code
+    lb     t0 0(a0)
+    lb     t1 1(a0)
+    lb     t2 2(a0)
+    lb     t3 3(a0)
+
+    addi   sp sp -24
+
+    sw     t0 0(sp)
+    sw     t1 4(sp)
+    sw     t2 8(sp)
+    sw     t3 12(sp)
+
+# Shifting all bits of BLZ & KNR to left
+
+    sw     a0 16(sp)
+    sw     ra 20(sp)
+
+    li     a2 18             # a2: number of characters
+    addi   a1 a0 4           # Source bytes
+    sub    a0 a0 2           # a0: target address
+
+    call   memcpy
+
+    lw     t0 0(sp)          # D
+    lw     t1 4(sp)          # E
+    lw     t2 8(sp)          # 6
+    lw     t3 12(sp)         # 8
+    lw     a0 16(sp)
+    lw     ra 20(sp)
+    addi   sp sp 24
+
+# converting ascii to decimal
+    li     t6 100
+    li     t5 65
+    sub    t0 t0 t5          # 3
+    addi   t0 t0 10          # 13
+
+    mul    t0 t0 t6
+
+    sub    t1 t0 t5          # 4
+    addi   t1 t1 10          # 14
+
+    add    t4 t0 t1          #+ve number
+
+# storing ascii numbers from 16 - 20
+
+    addi   sp sp -16
+    sw     ra 0(sp)
+    sw     a0 4(sp)
+    sw     t4 8(sp)
+    sw     t3 12(sp)
+
+    addi   a0 a0 16
+    mv     a1 a0             #target adress (16)
+    li     a2 4
+    mv     a0 t2
+
+    call   ib_loop
+
+
+    lw     t4 8(sp)
+    lw     t3 12(sp)
+    lw     ra 0(sp)
+    lw     a0 4(sp)
+    addi   sp sp 4
+
+#store checksum
+
+    mv     t6 a0
+    addi   t6 t6 21
+    sb     t2 0(t6)
+    addi   t6 t6 1
+    sb     t3 0(t6)
+
+
+    addi   sp sp -8
+    sw     ra 0(sp)
+    sw     a0 4(sp)
+
+    li     a1 24
+    li     a2 97
+    call modulo_str
+
+    lw     ra 0(sp)
+    lw     a0 4(sp)
+    addi sp sp 8
+
+
+
+    jr     ra
+      proper line mention for corrections and explainShow more1 MayClaude responded: Going through every bug with line references:Going through every bug with line references:
+
+Bug 1 — sub a0 a0 2 (memcpy target is wrong)
+asmsub  a0 a0 2    # ❌ target = iban - 2?? pointing BEFORE the buffer!
+You want to copy iban[4..21] TO iban[0..17]:
+asmmv   a0 a0      # target = iban[0] (don't move it at all!)
+addi a1 a0 4    # source = iban[4]
+li   a2 18
+But wait — a0 is both source base AND target here, so save it first:
+asmmv   t4 a0           # save original
+addi a1 a0 4         # source = iban+4
+mv   a0 t4           # target = iban+0
+li   a2 18
+call memcpy
+
+Bug 2 — sub t1 t0 t5 should be sub t1 t1 t5
+asmsub  t1 t0 t5    # ❌ subtracting from t0 not t1! E gets lost
+addi t1 t1 10
+Fix:
+asmsub  t1 t1 t5    # ✅ t1 = 'E' - 65 = 4
+addi t1 t1 10    # t1 = 14
+
+Bug 3 — addi a0 a0 16 then mv a1 a0 is wrong order
+asmaddi a0 a0 16    # a0 = iban+16 (target for writing digits)
+mv   a1 a0       # ❌ a1 = iban+16 too — both point to same place!
+li   a2 4
+mv   a0 t2       # a0 = the number to convert
+int_to_buf needs:
+
+a0 = number to convert
+a1 = target buffer address
+a2 = number of digits
+
+Fix:
+asmlw   a0 4(sp)        # restore original IBAN pointer
+addi a1 a0 18        # target = iban+18 (where country code digits go)
+li   a2 2            # 2 digits for 'D'→13
+mv   a0 t0           # number = 13 (converted D)
+call int_to_buf
+
+Bug 4 — addi sp sp 4 should be addi sp sp 16
+asmaddi sp sp -16    # allocated 16 bytes
+...
+addi sp sp 4      # ❌ only freeing 4! stack is now corrupted!
+Fix:
+asmaddi sp sp 16     # ✅ must match the -16
+
+Bug 5 — checksum stored at wrong position
+asmmv   t6 a0
+addi t6 t6 21     # ❌ position 21 is the LAST char of IBAN
+sb   t2 0(t6)     # writing check digits at end instead of positions 2-3!
+Check digits go at positions 2 and 3 of the IBAN:
+asmmv   t6 a0
+addi t6 t6 2      # ✅ position 2
+sb   t2 0(t6)
+addi t6 t6 1      # position 3
+sb   t3 0(t6)
+
+Bug 6 — moduloStr called without setting a0
+asmli   a1 24
+li   a2 97
+call modulo_str    # ❌ a0 is not set to IBAN buffer address!
+Fix:
+asmlw   a0 4(sp)      # restore IBAN pointer
+li   a1 24         # length
+li   a2 97         # mod 97
+call modulo_str
+
+Bug 7 — return value never set
+asmlw  ra 0(sp)
+lw  a0 4(sp)      # ❌ overwrites the result from moduloStr!
+addi sp sp 8
+jr  ra
+moduloStr returns its result in a0 — don't overwrite it:
+asmlw   ra 0(sp)
+# don't restore a0 — it holds the checksum result!
+addi sp sp 8
+jr   ra
+
+Corrected full structure:
+asmvalidate_checksum:
+    # 1. Load first 4 chars
+    lb   t0 0(a0)    # 'D'
+    lb   t1 1(a0)    # 'E'
+    lb   t2 2(a0)    # check digit 1
+    lb   t3 3(a0)    # check digit 2
+
+    # 2. Save everything
+    addi sp sp -24
+    sw   t0  0(sp)
+    sw   t1  4(sp)
+    sw   t2  8(sp)
+    sw   t3 12(sp)
+    sw   a0 16(sp)
+    sw   ra 20(sp)
+
+    # 3. memcpy iban[4..21] → iban[0..17]
+    mv   a0 a0           # target = iban[0]
+    addi a1 a0 4         # source = iban[4]
+    li   a2 18
+    call memcpy
+
+    # 4. Restore
+    lw   t0  0(sp)
+    lw   t1  4(sp)
+    lw   t2  8(sp)
+    lw   t3 12(sp)
+    lw   a0 16(sp)
+    lw   ra 20(sp)
+    addi sp sp 24
+
+    # 5. Convert D,E to numbers
+    li   t5 65
+    sub  t0 t0 t5    # D→3
+    addi t0 t0 10    # →13
+    li   t6 100
+    mul  t0 t0 t6    # 1300
+
+    sub  t1 t1 t5    # E→4  ✅ t1 not t0
+    addi t1 t1 10    # →14
+    add  t4 t0 t1    # 1314
+
+    # 6. Write converted country+check to positions 18-21
+    addi sp sp -8
+    sw   ra 0(sp)
+    sw   a0 4(sp)
+
+    addi a1 a0 18    # target = iban+18
+    li   a2 4        # 4 digits
+    mv   a0 t4       # number = 1314
+    call int_to_buf
+
+    lw   a0 4(sp)    # restore iban pointer
+
+    # 7. Write check digits at positions 2,3
+    addi t6 a0 2
+    sb   t2 0(t6)    # check digit 1
+    sb   t3 1(t6)    # check digit 2
+
+    # 8. moduloStr
+    li   a1 22
+    li   a2 97
+    call modulo_str  # result returned in a0
+
+    lw   ra 0(sp)
+    addi sp sp 8
+    jr   raYou said: what is this issue when i am trying to run denbuggerwhat is this issue when i am trying to run denbugger1 MayClaude responded: The error at the bottom says:The error at the bottom says:
+AssemblerError: validateChecksum.s:36: label memcpy used but not defined
+
+What it means
+You're calling memcpy but the assembler can't find it. This is because memcpy is defined in utils.s, and you need to tell your file it exists externally.
+
+Fix — add .globl or check the exact function name
+First check what the function is actually called in utils.s. Looking at the earlier screenshot it was called memcpy with label mc_loop inside it.
+You need to add at the top of your file:
+asm.data
+.globl validate_checksum
+.text
+This is already there — so the real issue is likely one of these:
+Option 1 — Wrong function name. Check utils.s exactly:
+asm# Is it called:
+memcpy        # or
+mem_cpy       # or  
+mc_copy       # ?
+Option 2 — utils.s doesn't have .globl memcpy. Open utils.s and check line 23 area — it needs:
+asm.globl memcpy    # ✅ must be present in utils.s
+memcpy:
+If .globl memcpy is missing from utils.s, add it above the memcpy: label in that file.You said: all these are thereall these are there1 MayClaude responded: Then the issue is that utils.Then the issue is that utils.s is not being linked/compiled together with your file.
+
+Check your build command
+Run this in the terminal to see how tests are compiled:
+cat run_tests.py
+Or check if there's a Makefile:
+cat Makefile
+Look for how the files are assembled — it should include ALL .s files together something like:
+bashvenus iban2knr.s utils.s validateChecksum.s ...
+
+Most likely fix
+Open run_tests.py and check if validateChecksum.s is included in the list of files being passed to Venus. If utils.s is not in the same compile command, Venus won't know about memcpy.
+
+Quick test
+Try running just in terminal:
+bashjava -jar venus.jar src/validateChecksum.s src/utils.s
+If that works, the problem is purely that your test runner isn't including utils.s when compiling validateChecksum.s.
+Can you paste what's inside run_tests.py or share a screenshot of it? That will pinpoint the exact fix needed.You said: still same issuestill same issue1 MayClaude responded: The error says line 36 specifically.The error says line 36 specifically. The issue is NOT about utils.s — it's a typo in your file.
+Look at the error:
+label memcpy used but not de...
+Go to line 36 of your validateChecksum.s and check — you probably wrote:
+asmcall   memcpy     # but accidentally typed "memcpy" wrong
+Common typos:
+asmcall   memcpy     # ✅ correct
+call   memCpy     # ❌ wrong capitalisation
+call   mem_cpy    # ❌ underscore
+call   mencpy     # ❌ typo
+
+How to check
+In the terminal run:
+bashgrep -n "memcpy" src/validateChecksum.s
+This will show every line where you wrote memcpy and you can spot the typo immediately.
+Also run:
+bashgrep -n "memcpy" src/utils.s
+Both should show the exact same spelling. If they differ by even one character, that's your bug.You said: what does this mean on left side ai thing?what does this mean on left side ai thing? does it mena ive written code with ai?1 MayClaude responded: No it doesn't mean you wrote code with AI.No it doesn't mean you wrote code with AI. That's just the IntelliCode extension in VS Code — it's a Microsoft autocomplete/suggestion tool that's installed in your editor.
+The warning just says the extension is deprecated and suggests switching to GitHub Copilot instead. It has nothing to do with your code.
+
+Your actual problem — the terminal shows:
+AssemblerError: validateChecksum.s:35: label memcpy used but not defined
+call   memcpy
+The debugger is running only validateChecksum.s by itself — without utils.s. So it can't find memcpy.
+The Venus debugger in VS Code doesn't automatically include other files. It only runs the single file you have open.
+
+Fix — you can't use the VS Code debugger button for this
+Use the terminal instead:
+bashpython run_tests.py
+That runs all files together correctly. The green "Run and Debug" button in VS Code will always fail for your project because it doesn't know to include utils.s.
+So just ignore the debugger for validateChecksum.s and always test via:
+bashpython run_tests.pyYou said: why isnt it debuggingwhy isnt it debugging1 MayClaude responded: The debugger button runs only the single file — it will never work for your project because it doesn't include utils.The debugger button runs only the single file — it will never work for your project because it doesn't include utils.s.
+You also have another bug on line 102 — a0 is never restored before jr ra, so the return value from modulo_str gets lost.
+
+To actually test — switch to the terminal tab and run:
+bashpython run_tests.py
+That's the only correct way to test your code. Don't use the green Run and Debug button for this project at all.
+
+To make the debugger work (optional)
+You'd need to add this line at the top of validateChecksum.s:
+asm.globl validate_checksum
+# add this:
+.extern memcpy
+.extern int_to_buf
+.extern modulo_str
+But honestly — just use python run_tests.py in the terminal. That's what your grade depends on anyway, not the debugger.You said: it works for this but not for memcpyit works for this but not for memcpy1 MayClaude responded: That's because moduloStr.That's because moduloStr.s has its own complete code in the file — so the debugger can run it standalone.
+But memcpy lives in utils.s — when you debug validateChecksum.s alone, it has no access to utils.s.
+
+The difference:
+FileHas own code?Debuggable alone?moduloStr.s✅ Yes✅ YesvalidateChecksum.scalls memcpy from utils.s❌ No
+
+Your only options:
+Option 1 — Just use terminal (recommended):
+bashpython run_tests.py
+Option 2 — Copy memcpy code directly into validateChecksum.s temporarily for debugging, then remove it after.
+Option 3 — Write your own inline copy loop instead of calling memcpy, so you don't depend on utils.s:
+asm# instead of call memcpy, inline the loop:
+addi t1, a0, 4    # source
+mv   t0, a0       # target  
+li   t2, 18       # count
+copy_loop:
+    lbu  t3, 0(t1)
+    sb   t3, 0(t0)
+    addi t1, t1, 1
+    addi t0, t0, 1
+    addi t2, t2, -1
+    bnez t2, copy_loop
+For now just use python run_tests.py — that's what matters for your grade.    .data
+
+    .globl iban2knr
+    .text
+# -- iban2knr
+# Arguments:
+# a0: IBAN buffer (22 bytes)
+# a1: BLZ buffer (8 bytes)
+# a2: KNR buffer (10 bytes)
+iban2knr:
+# TODO
+
+
+
+    addi   sp sp -16
+    sw     ra 0(sp)
+    sw     a0 4(sp)
+    sw     a1 8(sp)
+    sw     a2 12(sp)
+
+    mv     t0 a1
+    mv     a1 a0
+    mv     a0 t0
+    addi   a1 a1 4
+    li     a2 8
+    call   memcpy
+
+    lw     ra 0(sp)
+    lw     a0 4(sp)
+    lw     a1 8(sp)
+    lw     a2 12(sp)
+    addi   sp sp 16
+
+
+# stores KNR in its place
+# length of KLNR
+
+    mv     t5 a0
+    addi   t5 t5 12
+    li     t3 10
+
+memcpy_KNR:
+    mv     t0 a2             # current target
+    mv     t1 t5             # current source
+    add    t2 t5 t3          # last source
+
+mc_loop_KNR:
+# copy over 1 byte from source to target
+    lbu    t4 0(t1)
+    sb     t4 0(t0)
+    addi   t0 t0 1
+    addi   t1 t1 1
+    bltu   t1 t2 mc_loop_KNR # while current source != last
+
+    jr     ra
+
+
+
+this is the output help me finf ptproblemShow more1 MayClaude responded: The test shows Expected: 25, Actual: -7 — this is in validateChecksum, not iban2knr.The test shows Expected: 25, Actual: -7 — this is in validateChecksum, not iban2knr. But let me also point out the bug in your iban2knr code first.
+
+Bug in iban2knr — BLZ memcpy arguments are swapped
+asmmv   t0 a1       # t0 = BLZ buffer
+mv   a1 a0       # a1 = IBAN pointer  
+mv   a0 t0       # a0 = BLZ buffer ❌ WRONG!
+addi a1 a1 4     # a1 = IBAN + 4
+li   a2 8
+call memcpy
+memcpy arguments are:
+
+a0 = target (where to write)
+a1 = source (where to read from)
+
+So it should be:
+asmmv   a0 a1       # target = BLZ buffer
+addi a1 a0 4     # ❌ but now a0 is BLZ, not IBAN!
+Save original pointers first:
+asmmv   t5 a0       # save original IBAN
+
+# BLZ memcpy
+mv   a0 a1       # target = BLZ buffer
+addi a1 t5 4     # source = IBAN + 4
+li   a2 8
+call memcpy
+
+# KNR memcpy
+mv   a0 a2       # target = KNR buffer
+addi a1 t5 12    # source = IBAN + 12
+li   a2 10
+call memcpy
+This is much cleaner — use memcpy for BOTH BLZ and KNR, no need for the manual loop at the bottom.
+
+The -7 output from validateChecksum
+That's a logic error in your checksum calculation. Can you paste your current validateChecksum.s code so I can pinpoint exactly what's wrong?    .data
+    .globl validate_checksum
+    .text
+
+# -- validate_checksum --
+# Arguments:
+# a0 : Address of a string containing a german IBAN (22 characters)
+# Return:
+# a0 : the checksum of the IBAN
+validate_checksum:
+# TODO
+
+# Stroring Country code
+    lb     t0 0(a0)
+    lb     t1 1(a0)
+    lb     t2 2(a0)
+    lb     t3 3(a0)
+
+    addi   sp sp -24
+
+    sw     t0 0(sp)
+    sw     t1 4(sp)
+    sw     t2 8(sp)
+    sw     t3 12(sp)
+
+# Shifting all bits of BLZ & KNR to left
+
+    sw     a0 16(sp)
+    sw     ra 20(sp)
+
+    mv     t4 a0             #save a0 in t4
+    li     a2 18             # a2: number of characters
+    addi   a1 a0 4           # Source bytes
+    mv     a0 a0             # a0: target address
+    call   memcpy
+
+    lw     t0 0(sp)          # D
+    lw     t1 4(sp)          # E
+    lw     t2 8(sp)          # 6
+    lw     t3 12(sp)         # 8
+    lw     a0 16(sp)
+    lw     ra 20(sp)
+    addi   sp sp 24
+
+# converting ascii to decimal
+    li     t6 100
+    li     t5 65
+    sub    t0 t0 t5          # 3
+    addi   t0 t0 10          # 13
+
+    mul    t0 t0 t6
+
+    sub    t1 t1 t5          # 4
+    addi   t1 t1 10          # 14
+
+    add    t4 t0 t1          #+ve number
+
+# storing ascii numbers from 16 - 20
+
+    addi   sp sp -16
+    sw     ra 0(sp)
+    sw     a0 4(sp)
+    sw     t4 8(sp)
+    sw     t3 12(sp)
+
+    addi   a0 a0 18
+    mv     a1 a0             #target address (18)
+    li     a2 2
+    mv     a0 t4
+
+    call   int_to_buf
+
+
+    lw     t4 8(sp)
+    lw     t3 12(sp)
+    lw     ra 0(sp)
+    lw     a0 4(sp)
+    addi   sp sp 16
+
+#store checksum
+
+    mv     t6 a0
+    addi   t6 t6 20
+    sb     t2 0(t6)
+    addi   t6 t6 1
+    sb     t3 0(t6)
+
+
+    addi   sp sp -8
+    sw     ra 0(sp)
+    sw     a0 4(sp)
+
+    li     a1 24
+    li     a2 97
+    call   modulo_str
+
+    lw     ra 0(sp)
+    addi   sp sp 8
+
+
+
+    jr     raShow more1 MayClaude responded: I can see several bugs.I can see several bugs. Let me go through them:
+
+Bug 1 — mv a0 a0 does nothing (memcpy target wrong)
+asmmv   t4 a0        # save a0
+addi a1 a0 4      # source = iban+4
+mv   a0 a0        # ❌ target = iban+0... but overwrites with same value
+This is actually correct accidentally — target IS iban+0. But the issue is a1 is set AFTER a0 is potentially changed. Rewrite clearly:
+asmmv   a0 t4        # target = iban+0
+addi a1 t4 4      # source = iban+4
+li   a2 18
+call memcpy
+
+Bug 2 — int_to_buf arguments wrong
+asmaddi a0 a0 18     # a0 = iban+18
+mv   a1 a0        # ❌ a1 = iban+18 (same as a0!)
+li   a2 2
+mv   a0 t4        # a0 = number
+int_to_buf needs:
+
+a0 = number
+a1 = target buffer
+a2 = digits
+
+Fix:
+asmaddi a1 a0 18     # a1 = target = iban+18
+li   a2 4         # 4 digits (13 and 14 together = 1314)
+mv   a0 t4        # a0 = number = 1314
+call int_to_buf
+
+Bug 3 — check digits stored at wrong position
+asmaddi t6 t6 20     # position 20 ❌
+sb   t2 0(t6)     # position 20
+sb   t3 0(t6)     # position 21 (after addi)
+After the memcpy shift, the rearranged IBAN looks like:
+positions: 0-17  = BLZ+KNR (shifted left)
+positions: 18-21 = country code digits (13, 14) + check digits
+So check digits go at positions 20 and 21:
+asmmv   t6 a0
+addi t6 t6 20
+sb   t2 0(t6)     # check digit 1 at position 20
+addi t6 t6 1
+sb   t3 0(t6)     # check digit 2 at position 21
+Actually this looks right — but t2 and t3 hold the original ASCII characters like '2' and '5'. You need to convert them to digits first:
+asmli   t5 48        # '0' = 48
+sub  t2 t2 t5     # ASCII → digit
+sub  t3 t3 t5
+
+Bug 4 — modulo_str called without a0
+asmli   a1 24
+li   a2 97
+call modulo_str   # ❌ a0 not set!
+Fix:
+asmmv   a0 ...       # must point to rearranged IBAN buffer
+li   a1 22        # length is 22 not 24
+li   a2 97
+call modulo_str
+
+Bug 5 — a0 restored after modulo_str, losing result
+asmlw   ra 0(sp)
+# ❌ don't restore a0 — it holds the checksum!
+addi sp sp 8
+jr   ra
+
+Corrected full code:
+asmvalidate_checksum:
+    # 1. Load first 4 chars
+    lb   t0 0(a0)    # 'D'
+    lb   t1 1(a0)    # 'E'
+    lb   t2 2(a0)    # check digit 1 (ASCII)
+    lb   t3 3(a0)    # check digit 2 (ASCII)
+
+    # 2. Save to stack
+    addi sp sp -24
+    sw   t0  0(sp)
+    sw   t1  4(sp)
+    sw   t2  8(sp)
+    sw   t3 12(sp)
+    sw   a0 16(sp)
+    sw   ra 20(sp)
+
+    # 3. memcpy iban[4..21] → iban[0..17]
+    mv   t4 a0
+    mv   a0 t4        # target = iban+0
+    addi a1 t4 4      # source = iban+4
+    li   a2 18
+    call memcpy
+
+    # 4. Restore
+    lw   t0  0(sp)
+    lw   t1  4(sp)
+    lw   t2  8(sp)
+    lw   t3 12(sp)
+    lw   a0 16(sp)
+    lw   ra 20(sp)
+    addi sp sp 24
+
+    # 5. Convert D,E → numbers
+    li   t5 65
+    sub  t0 t0 t5     # D→3
+    addi t0 t0 10     # →13
+    li   t6 100
+    mul  t0 t0 t6     # →1300
+    sub  t1 t1 t5     # E→4
+    addi t1 t1 10     # →14
+    add  t4 t0 t1     # →1314
+
+    # 6. Write 1314 to positions 18-21
+    addi sp sp -8
+    sw   ra 0(sp)
+    sw   a0 4(sp)
+
+    addi a1 a0 18     # target = iban+18
+    li   a2 4         # 4 digits
+    mv   a0 t4        # number = 1314
+    call int_to_buf
+
+    lw   a0 4(sp)
+
+    # 7. Convert check digits ASCII→digit and store at pos 20,21
+    li   t5 48
+    sub  t2 t2 t5     # '2'→2
+    sub  t3 t3 t5     # '5'→5
+    addi t6 a0 20
+    sb   t2 0(t6)
+    sb   t3 1(t6)
+
+    # 8. modulo_str
+    li   a1 22
+    li   a2 97
+    call modulo_str   # result in a0
+
+    lw   ra 0(sp)
+    addi sp sp 8
+    jr   raYou said: expected is 25 and mine is -7expected is 25 and mine is -71 MayClaude responded: The -7 means your checksum calculation is fundamentally off.The -7 means your checksum calculation is fundamentally off. Let me trace through what the correct algorithm should be for a German IBAN checksum.
+
+The correct IBAN checksum algorithm
+Take IBAN DE68 2004 0060 0543 1000 00:
+Step 1: Move first 4 chars to end:
+Original:  D  E  6  8  2004006005431000 00
+Rearranged: 2004006005431000 00 D  E  6  8
+Step 2: Convert letters to numbers:
+D = 13
+E = 14
+Result string: "200400600543100000131468"
+Step 3: Calculate mod 97 of that number string.
+Step 4: Result should be 1 for a valid IBAN. Your function returns the checksum value itself (before the check digits are set to 00).
+
+Your specific bugs causing -7
+Bug 1 — check digits should be '0','0' not the original values
+When calculating checksum, the check digit positions (pos 2,3) should be replaced with 00, NOT kept as original:
+asm# After shifting, positions 20-21 should be '0','0'
+addi t6 a0 20
+li   t5 48        # '0'
+sb   t5 0(t6)     # store '0'
+sb   t5 1(t6)     # store '0'
+Bug 2 — int_to_buf writes digits in wrong order
+int_to_buf writes from right to left. For 1314 with 4 digits at position 18:
+position 18 = '1'
+position 19 = '3'
+position 20 = '1'  ← overwritten by check digits
+position 21 = '4'  ← overwritten by check digits
+So write country code at 18-19, check digits at 20-21:
+asm# country code 13 at pos 18-19
+addi a1 a0 18
+li   a2 2
+mv   a0 t0        # just D value (13)
+call int_to_buf
+
+lw   a0 4(sp)
+
+# country code 14 at pos 20-21  
+addi a1 a0 20
+li   a2 2
+mv   a0 t1        # just E value (14)
+call int_to_buf
+
+lw   a0 4(sp)
+
+# check digits '0','0' at pos 22-23... 
+# wait — total length must be 22!
+
+Actually — let me re-examine the full structure
+The rearranged string for mod 97 should be exactly 24 characters:
+18 chars (BLZ+KNR) + 2 chars (D=13) + 2 chars (E=14) + 2 chars (check digits as "00")
+= 18 + 2 + 2 + 2 = 24 chars
+So your buffer needs 24 bytes and modulo_str should be called with a1=24:
+asmvalidate_checksum:
+    # 1. Load first 4 chars
+    lb   t0 0(a0)    # 'D'
+    lb   t1 1(a0)    # 'E'
+    # ignore t2,t3 — check digits replaced with '0','0'
+
+    # 2. Save stack
+    addi sp sp -16
+    sw   ra  0(sp)
+    sw   a0  4(sp)
+    sw   t0  8(sp)
+    sw   t1 12(sp)
+
+    # 3. memcpy iban[4..21] → iban[0..17]  (18 bytes)
+    mv   t4 a0
+    addi a1 t4 4     # source = iban+4
+    mv   a0 t4       # target = iban+0
+    li   a2 18
+    call memcpy
+
+    lw   a0  4(sp)
+    lw   t0  8(sp)
+    lw   t1 12(sp)
+
+    # 4. Write D value (13) at positions 18-19
+    addi a1 a0 18
+    li   a2 2
+    li   a0 13
+    call int_to_buf
+
+    lw   a0 4(sp)
+
+    # 5. Write E value (14) at positions 20-21
+    addi a1 a0 20
+    li   a2 2
+    li   a0 14
+    call int_to_buf
+
+    lw   a0 4(sp)
+
+    # 6. Write '0','0' at positions 22-23
+    addi t6 a0 22
+    li   t5 48       # ASCII '0'
+    sb   t5 0(t6)
+    sb   t5 1(t6)
+
+    # 7. modulo_str on 24 chars
+    li   a1 24
+    li   a2 97
+    call modulo_str  # result in a0
+
+    lw   ra 0(sp)
+    addi sp sp 16
+    jr   ra
+
+Key changes from your version
+IssueYour codeFixCheck digitskept original valuesreplace with '0','0'Country codewritten as 1314 togetherwrite 13 and 14 separatelyBuffer length22needs 24 for the full numbermodulo_str length2424 ✅Restoring a0 after modulo_stryes ❌don't — it holds the result
+
+    .data
+    .globl validate_checksum
+    .text
+# -- memcpy --
+# Arguments:
+# a0: target address
+# a1: source address
+# a2: number of bytes
+# Return: none
+# Semantics:
+# Copies the memory area [a1 to a1 + a2 - 1] to [a0 to a0 + a2 - 1]
+memcpy:
+    mv     t0 a0             # current target
+    mv     t1 a1             # current source
+    add    t2 a1 a2          # last source
+
+mc_loop:
+# copy over 1 byte from source to target
+    lbu    t4 0(t1)
+    sb     t4 0(t0)
+    addi   t0 t0 1
+    addi   t1 t1 1
+    bltu   t1 t2 mc_loop     # while current source != last
+
+
+# -- int_to_buf --
+# Arguments:
+# a0: positive integer
+# a1: target address
+# a2: number of digits (counted from the from right)
+# Return: none
+# Semantics:
+# Writes the last a2 digits of the positive integer in a0 as a decimal string to the memory area [a1 to a1 + a2 - 1]
+int_to_buf:
+    mv     t2 a1             # start to write to
+    add    t3 a1 a2
+    addi   t1 t3 -1          # end to write to (position of last char)
+    mv     t0 a0             # keep number
+    li     t5 10             # number base
+
+# move from back to front
+ib_loop:
+# t0 = remainder
+    mv     t3 t0
+    div    t0 t0 t5
+    mul    t4 t0 t5
+# t3 = t3 - ((t3/10)*10)
+# (extract last digit)
+    sub    t3 t3 t4
+
+    addi   t3 t3 '0'
+    sb     t3 0(t1)
+
+    addi   t1 t1 -1
+    bgeu   t1 t2 ib_loop
+
+
+
+# -- validate_checksum --
+# Arguments:
+# a0 : Address of a string containing a german IBAN (22 characters)
+# Return:
+# a0 : the checksum of the IBAN
+validate_checksum:
+# TODO
+
+# Stroring Country code
+    lb     t0 0(a0)
+    lb     t1 1(a0)
+    lb     t2 2(a0)
+    lb     t3 3(a0)
+
+    addi   sp sp -24
+
+    sw     t0 0(sp)
+    sw     t1 4(sp)
+    sw     t2 8(sp)
+    sw     t3 12(sp)
+
+# Shifting all bits of BLZ & KNR to left
+
+    sw     a0 16(sp)
+    sw     ra 20(sp)
+
+    mv     t4 a0             #save a0 in t4
+    li     a2 18             # a2: number of characters
+    addi   a1 a0 4           # Source bytes
+
+    call   memcpy
+
+    lw     t0 0(sp)          # D
+    lw     t1 4(sp)          # E
+    lw     t2 8(sp)          # 6
+    lw     t3 12(sp)         # 8
+    lw     a0 16(sp)
+    lw     ra 20(sp)
+    addi   sp sp 24
+
+# converting ascii to decimal
+    li     t6 100
+    li     t5 65
+    sub    t0 t0 t5          # 3
+    addi   t0 t0 10          # 13
+
+    mul    t0 t0 t6
+
+    sub    t1 t1 t5          # 4
+    addi   t1 t1 10          # 14
+
+    add    t4 t0 t1          #+ve number
+
+# storing ascii numbers from 16 - 20
+
+    addi   sp sp -16
+    sw     ra 0(sp)
+    sw     a0 4(sp)
+    sw     t4 8(sp)
+    sw     t3 12(sp)
+
+    addi   a0 a0 18
+    mv     a1 a0             #target address (18)
+    li     a2 4
+    mv     a0 t4
+
+    call   int_to_buf
+
+
+    lw     t4 8(sp)
+    lw     t3 12(sp)
+    lw     ra 0(sp)
+    lw     a0 4(sp)
+    addi   sp sp 16
+
+#store checksum
+
+    mv     t6 a0
+    addi   t6 t6 20
+    sb     t2 0(t6)
+    addi   t6 t6 1
+    sb     t3 0(t6)
+
+
+    addi   sp sp -8
+    sw     ra 0(sp)
+    sw     a0 4(sp)
+
+    li     a1 24
+    li     a2 97
+    call   modulo_str
+
+    lw     ra 0(sp)
+    addi   sp sp 8
+
+
+
+    jr     ra
+help me fix this codeShow more1 MayClaude responded: I'd be happy to help fix the code, but I need to understand what issues you're running into.I'd be happy to help fix the code, but I need to understand what issues you're running into.You said: Q: What kind of issues are you experiencing?Q: What kind of issues are you experiencing? (Select all that apply)
+A: Wrong output / incorrect checksumQ: Is modulo_str defined elsewhere, or is that also something you need to implement?
+A: It's defined elsewhere1 MayClaude responded: Let me carefully analyze the IBAN checksum logic.Let me carefully analyze the IBAN checksum logic. The standard algorithm for validating a German IBAN (DE + 2 check digits + 8-digit BLZ + 10-digit account number) is:
+
+Move the first 4 characters to the end
+Convert letters to numbers (A=10, B=11, … Z=35)
+Compute the resulting number mod 97
+Valid if result == 1
+
+Let me trace through your code and identify the bugs:
+
+Bug 1: memcpy destination is wrong
+riscvmv     t4 a0        # save a0 in t4
+li     a2 18
+addi   a1 a0 4      # source = IBAN+4 (the part after "DE68")
+call   memcpy       # a0 (destination) = original start of buffer!
+You're copying bytes 4–21 back onto bytes 0–17 of the same buffer — overwriting the country code you just saved. The destination should be a0 (the buffer start), which is correct, but you must use a separate scratch buffer, or shift in-place carefully. The intent is to move chars 4–21 to positions 0–17, then append the converted country code + checksum digits. Copying overlapping memory forward with your memcpy (which goes low-to-high) is safe here, so this part actually works — but read on.
+
+Bug 2: Country code conversion is wrong
+riscvli     t5 65        # 'A'
+sub    t0 t0 t5     # 'D' - 'A' = 3
+addi   t0 t0 10     # 3 + 10 = 13  ✓
+
+sub    t1 t1 t5     # 'E' - 'A' = 4
+addi   t1 t1 10     # 4 + 10 = 14  ✓
+
+mul    t0 t0 t6     # 13 * 100 = 1300
+add    t4 t0 t1     # 1300 + 14 = 1314  ✓
+This part is actually correct — DE → 1314. No bug here.
+
+Bug 3: int_to_buf is called with wrong target address
+riscvaddi   a0 a0 18     # <-- corrupts a0 before saving it as target
+mv     a1 a0        # target = a0+18  (position 18 in buffer)
+li     a2 4
+mv     a0 t4        # value = 1314
+call   int_to_buf
+int_to_buf writes the 4-digit country code number to position 18, but the rearranged IBAN string occupies positions 0–17. The country code digits should go at positions 18–21, which is what you're doing — this is correct.
+However, a2 = 4 digits for the value 1314 is fine. No bug here either.
+
+Bug 4: Check digits appended at wrong position / wrong values
+riscvmv     t6 a0        # a0 is still the original IBAN base address
+addi   t6 t6 20
+sb     t2 0(t6)     # t2 = '6' (ASCII 54) — raw ASCII, not converted!
+addi   t6 t6 1
+sb     t3 0(t6)     # t3 = '8' (ASCII 56) — raw ASCII, not converted!
+This is the main bug. t2 and t3 hold the raw ASCII characters '6' and '8' from the original IBAN. But at this point in the buffer (positions 20–21), you need the decimal digit characters for the check digits — and more importantly, the check digits 68 are already in the source string; they shouldn't be re-appended as ASCII bytes without conversion.
+The IBAN mod-97 rearrangement should produce a 22-character string like:
+[BLZ 8 chars][KNR 10 chars][1314][68]
+ positions 0-17             18-21 22-23
+But you're writing to positions 20–21, which overlap with the last 2 chars written by int_to_buf (which wrote to 18–21). The check digits overwrite part of the country code number.
+Fix — write the check digit characters at positions 22–23, or adjust int_to_buf to write only 2 digits and put check digits at 20–21 — but make sure the total buffer is long enough (you need 24 chars for the full rearranged string):
+riscvmv     t6 a0
+addi   t6 t6 22     # positions 22-23, not 20-21
+sb     t2 0(t6)
+addi   t6 t6 1
+sb     t3 0(t6)
+And update the modulo_str call length accordingly:
+riscvli     a1 24        # already correct — but make sure buffer is 24 chars
+li     a2 97
+
+Bug 5: modulo_str is called without setting a0
+riscvlw     a0 4(sp)     # restores original a0 (IBAN base) ✓ — this is fine
+...
+call   modulo_str   # a0 = buffer base, a1 = length 24, a2 = 97
+This looks okay assuming modulo_str(a0=buffer, a1=length, a2=modulus) is the correct calling convention. Double-check that matches the definition of modulo_str.
+
+Summary of fixes
+#LocationProblemFix1Check digit appendWritten to positions 20–21, overlapping country codeChange offset to +222Buffer length passed to modulo_strShould be 24 if check digits moved to 22–23Already li a1 24 ✓3t2/t3 valuesThese are raw ASCII '6'/'8' — confirm that modulo_str expects ASCII digit chars, not integersIf it expects integers, subtract '0' before storing
+The core fix is changing the offset where you write the check digits:
+riscv# Fix: write check digits at position 22-23, not 20-21
+mv     t6 a0
+addi   t6 t6 22     # <-- was 20
+sb     t2 0(t6)
+addi   t6 t6 1
+sb     t3 0(t6)    .data
+    .globl validate_checksum
+    .text
+    
+# -- validate_checksum --
+# Arguments:
+# a0 : Address of a string containing a german IBAN (22 characters)
+# Return:
+# a0 : the checksum of the IBAN
+validate_checksum:
+# TODO
+
+# Stroring Country code
+    lb     t0 0(a0)
+    lb     t1 1(a0)
+    lb     t2 2(a0)
+    lb     t3 3(a0)
+
+    addi   sp sp -24
+
+    sw     t0 0(sp)
+    sw     t1 4(sp)
+    sw     t2 8(sp)
+    sw     t3 12(sp)
+
+# Shifting all bits of BLZ & KNR to left
+
+    sw     a0 16(sp)
+    sw     ra 20(sp)
+
+    mv     t4 a0             #save a0 in t4
+    li     a2 18             # a2: number of characters
+    addi   a1 a0 4           # Source bytes
+
+    call   memcpy
+
+    lw     t0 0(sp)          # D
+    lw     t1 4(sp)          # E
+    lw     t2 8(sp)          # 6
+    lw     t3 12(sp)         # 8
+    lw     a0 16(sp)
+    lw     ra 20(sp)
+    addi   sp sp 24
+
+# converting ascii to decimal
+    li     t6 100
+    li     t5 65
+    sub    t0 t0 t5          # 3
+    addi   t0 t0 10          # 13
+
+    mul    t0 t0 t6
+
+    sub    t1 t1 t5          # 4
+    addi   t1 t1 10          # 14
+
+    add    t4 t0 t1          #+ve number
+
+# storing ascii numbers from 16 - 20
+
+    addi   sp sp -16
+    sw     ra 0(sp)
+    sw     a0 4(sp)
+    sw     t4 8(sp)
+    sw     t3 12(sp)
+
+    addi   a0 a0 18
+    mv     a1 a0             #target address (18)
+    li     a2 4
+    mv     a0 t4
+
+    call   int_to_buf
+
+
+    lw     t4 8(sp)
+    lw     t3 12(sp)
+    lw     ra 0(sp)
+    lw     a0 4(sp)
+    addi   sp sp 16
+
+#store checksum
+
+    mv     t6 a0
+    addi   t6 t6 20
+    sb     t2 0(t6)
+    addi   t6 t6 1
+    sb     t3 0(t6)
+
+
+    addi   sp sp -8
+    sw     ra 0(sp)
+    sw     a0 4(sp)
+
+    li     a1 24
+    li     a2 97
+    call   modulo_str
+
+    lw     ra 0(sp)
+    addi   sp sp 8
+
+
+
+    jr     ra
+this the codeShow more1 MayClaude responded: The TIMEOUT means there's an infinite loop somewhere.The TIMEOUT means there's an infinite loop somewhere. Looking at your code, the most likely culprit is the memcpy call — let me trace it:
+riscvmv     t4 a0          # t4 = buffer base
+li     a2 18          # 18 bytes
+addi   a1 a0 4        # source = buffer+4
+                      # a0 is STILL buffer base = destination!
+call   memcpy
+In memcpy, the loop condition is:
+riscvbltu   t1 t2 mc_loop  # while source < source+18
+Since source (a1 = buffer+4) and destination (a0 = buffer+0) overlap, and memcpy copies low-to-high, this actually works — but only if a2 > 0. That's fine here.
+The real infinite loop is actually in int_to_buf:
+riscvaddi   a0 a0 18       # a0 = buffer+18  ← you modify a0 here
+mv     a1 a0          # target = buffer+18  ← then use it as target
+li     a2 4
+mv     a0 t4          # a0 = 1314 (the value to write)
+call   int_to_buf
+Inside int_to_buf, the loop condition is:
+riscvbgeu   t1 t2 ib_loop  # while current write pos >= start
+t2 = a1 = buffer+18 (start), t1 starts at a1+a2-1 = buffer+21 and decrements. This should terminate after 4 iterations — so int_to_buf is not the loop either.
+The actual problem: modulo_str is called with wrong arguments. Look at this:
+riscvaddi   sp sp -8
+sw     ra 0(sp)
+sw     a0 4(sp)       # saves original a0 (IBAN buffer)
+
+li     a1 24
+li     a2 97
+call   modulo_str     # but what is a0 here?
+After the int_to_buf block you restore a0 to the original IBAN base — that's correct. But a1 should be the buffer length, not the length passed as the second argument to modulo_str. Check the calling convention of modulo_str — it likely expects (a0=buffer, a1=length, a2=modulus), which you have. That seems right.
+
+The real culprit: the check digits are written after modulo_str's expected buffer range
+riscvaddi   t6 t6 20
+sb     t2 0(t6)       # writes '6' at buffer+20
+addi   t6 t6 1
+sb     t3 0(t6)       # writes '8' at buffer+21
+You pass a1=24 to modulo_str, but only filled bytes 0–21 (22 bytes). Bytes 22–23 are uninitialized garbage. If modulo_str loops over all 24 bytes and encounters a non-digit character, it may loop forever.
+
+The fix
+The rearranged IBAN should be exactly 24 characters:
+PositionsContent0–17BLZ + KNR (18 chars, shifted from original pos 4–21)18–21Country code as digits: 131422–23Check digits: 6 and 8 as ASCII chars
+Change the check digit write offset from +20 to +22, and keep a1=24:
+riscv# Fix: offset should be +22, not +20
+mv     t6 a0
+addi   t6 t6 22       # <-- was 20
+sb     t2 0(t6)       # '6' at buffer+22
+addi   t6 t6 1
+sb     t3 0(t6)       # '8' at buffer+23
+And then the modulo_str call over 24 characters will cover all bytes that are properly initialized, eliminating the timeout.    .data
+    .globl validate_checksum
+    .text
+
+# -- validate_checksum --
+# Arguments:
+# a0 : Address of a string containing a german IBAN (22 characters)
+# Return:
+# a0 : the checksum of the IBAN
+validate_checksum:
+# TODO
+
+# Stroring Country code
+    lb     t0 0(a0)
+    lb     t1 1(a0)
+    lb     t2 2(a0)
+    lb     t3 3(a0)
+explain how to solve this ans
+
+    addi   sp sp -24
+
+    sw     t0 0(sp)
+    sw     t1 4(sp)
+    sw     t2 8(sp)
+    sw     t3 12(sp)
+
+# Shifting all bits of BLZ & KNR to left
+
+    sw     a0 16(sp)
+    sw     ra 20(sp)
+
+    mv     t4 a0             #save a0 in t4
+    li     a2 18             # a2: number of characters
+    addi   a1 a0 4           # Source adress
+
+    call   memcpy
+
+    lw     t0 0(sp)          # D
+    lw     t1 4(sp)          # E
+    lw     t2 8(sp)          # 6
+    lw     t3 12(sp)         # 8
+    lw     a0 16(sp)
+    lw     ra 20(sp)
+    addi   sp sp 24
+
+# converting ascii to decimal
+    li     t6 100
+    li     t5 65
+    sub    t0 t0 t5          # 3
+    addi   t0 t0 10          # 13
+
+    mul    t0 t0 t6
+
+    sub    t1 t1 t5          # 4
+    addi   t1 t1 10          # 14
+
+    add    t4 t0 t1          #+ve number
+
+# storing ascii numbers from 16 - 20
+
+    addi   sp sp -16
+    sw     ra 0(sp)
+    sw     a0 4(sp)
+    sw     t2 8(sp)
+    sw     t3 12(sp)
+
+    addi   a0 a0 18
+    mv     a1 a0             #target address (18)
+    li     a2 4
+    mv     a0 t4
+
+    call   int_to_buf        # writes all the numbers to the back
+
+
+    lw     t2 8(sp)
+    lw     t3 12(sp)
+    lw     ra 0(sp)
+    lw     a0 4(sp)
+    addi   sp sp 16
+
+#store checksum
+
+    mv     t6 a0
+    addi   t6 t6 21
+    sb     t2 0(t6)
+    addi   t6 t6 1
+    sb     t3 0(t6)
+
+
+    addi   sp sp -8
+    sw     ra 0(sp)
+    sw     a0 4(sp)
+
+    li     a1 22
+    li     a2 97
+    call   modulo_str
+
+    mv     t6 a0             # the return value Remainder from modulo
+    lw     ra 0(sp)
+    lw     a0 4(sp)
+    addi   sp sp 8
+
+
+
+    jr     raShow more1 MayClaude responded: Good progress — no more timeout!Good progress — no more timeout! Now the output is 268435456 instead of the expected 25. That number 268435456 is 0x10000000, which is a telltale sign of a garbage/uninitialized register being returned. The issue is clear:
+
+The Bug: Return value is lost
+You save modulo_str's return value into t6, but then overwrite a0 from the stack:
+riscvcall   modulo_str
+
+mv     t6 a0        # save return value into t6
+lw     ra 0(sp)
+lw     a0 4(sp)     # ← OVERWRITES a0 with the original IBAN pointer!
+addi   sp sp 8
+
+jr     ra           # returns the IBAN pointer, not the checksum!
+The function must return the checksum in a0, but you're restoring the old a0 (the IBAN buffer address) on top of it.
+
+The Fix
+You don't need to restore a0 after modulo_str — that was only needed if you had more work to do with the buffer afterward. Since modulo_str's return value is your final return value, just let it stay in a0:
+riscv	addi   sp sp -8
+	sw     ra 0(sp)
+	# don't save/restore a0 here — we WANT modulo_str's return value
+
+	li     a1 22
+	li     a2 97
+	call   modulo_str
+
+	# a0 now holds the checksum — just return it directly
+	lw     ra 0(sp)
+	addi   sp sp 8
+
+	jr     ra
+
+Secondary bug: buffer layout is still off
+With a1=22 passed to modulo_str, your buffer must be exactly 22 chars. Let's count what you're writing:
+PositionsContentHow0–17BLZ + KNRmemcpy from original pos 4–2118–211314 (country code)int_to_buf with a2=421–22'6', '8' (check digits)sb at +21, +22
+Position 21 is written twice — once by int_to_buf (last digit of 1314) and once by sb t2 (the '6'). The check digits should go at positions 22–23, making the total buffer 24 bytes, not 22:
+riscv	addi   t6 t6 22      # ← was 21, fix to 22
+	sb     t2 0(t6)      # '6' at position 22
+	addi   t6 t6 1
+	sb     t3 0(t6)      # '8' at position 23
+
+	...
+	li     a1 24         # ← was 22, fix to 24
+	li     a2 97
+	call   modulo_str
+Both fixes together should give you the correct checksum of 1 (a valid IBAN mod 97 always equals 1), and your test expects 25 which suggests modulo_str returns the raw remainder — so make sure the buffer and length are right and it should land on the expected value.You said: the q said we cant assume space begind buffer what does it mean and intialy we have 22 characters so if we convert from ascii to decimal we have now 24 charact…the q said we cant assume space begind buffer what does it mean and intialy we have 22 characters so if we convert from ascii to decimal we have now 24 character and then i previusly creted area at the start by decrementing the a0 by 2 and shifted whole byte by 6 steps to left1 MayClaude responded: This is a crucial constraint!This is a crucial constraint! "You cannot write in/after the received buffer" means:
+
+The input buffer is exactly 22 bytes
+You cannot write beyond position 21
+You cannot append the converted country code and check digits after the original data
+
+
+The correct approach: use a separate local buffer on the stack
+Since the rearranged string is 24 characters (18 digits + 4 for "1314" + 2 for "68"), you need to allocate 24 bytes on the stack and build the rearranged string there, never touching the original buffer.
+Here's the corrected logic:
+riscvvalidate_checksum:
+    # Save ra and original a0
+    addi   sp sp -32
+    sw     ra 0(sp)
+    sw     a0 4(sp)          # save original IBAN pointer
+
+    # Read the 4 header chars before we do anything
+    lb     t0 0(a0)          # 'D'
+    lb     t1 1(a0)          # 'E'
+    lb     t2 2(a0)          # '6'
+    lb     t3 3(a0)          # '8'
+    sw     t2 8(sp)          # save '6'
+    sw     t3 12(sp)         # save '8'
+
+    # Allocate 24-byte scratch buffer on stack
+    addi   sp sp -24         # sp now points to our scratch buffer
+
+    # Step 1: copy 18 bytes from IBAN+4 into scratch[0..17]
+    lw     a1 28(sp)         # original a0 (offset: 24+4=28)
+    addi   a1 a1 4           # source = IBAN+4
+    mv     a0 sp             # dest = scratch buffer start
+    li     a2 18
+    call   memcpy
+
+    # Step 2: convert country code letters to number and write to scratch[18..21]
+    # DE -> 1314
+    li     t5 65
+    lw     t0 56(sp)         # restore 'D' ... actually recalculate:
+Actually, this gets complicated fast with the offsets. Let me give you the clean conceptual structure to implement:
+
+Clean structure
+Stack layout (grows down):
+[ ra          ]  sp+0
+[ orig_a0     ]  sp+4
+[ 'D','E'     ]  sp+8,12   (saved ASCII)
+[ '6','8'     ]  sp+16,20  (saved ASCII)
+[ scratch[0]  ]  sp+24     ← 24-byte buffer built here
+...
+[ scratch[23] ]  sp+47
+Steps:
+
+addi sp sp -48 (4 saves × 4 bytes + 24 scratch + 4 alignment)
+Save ra, a0, and all 4 IBAN header bytes
+Copy IBAN[4..21] → scratch[0..17] using memcpy
+Convert 'D','E' → 1314, write with int_to_buf into scratch[18..21]
+Write '6','8' (already ASCII digits) into scratch[22..23]
+Call modulo_str(scratch, 24, 97)
+Save result, restore ra, restore stack, return result in a0
+
+
+Key insight about your previous approach
+Your idea of decrementing a0 by 2 and shifting 6 bytes left was creative but:
+
+Shifting 6 to the left means writing before the buffer start — also not allowed
+You'd need the allocator to have placed 6 free bytes before the buffer, which you can't guarantee
+
+Stack allocation is the right solution. The scratch buffer lives entirely in your own stack frame, so you own it completely.You said: why did you use 58 and 28 in fi for lw a1why did you use 58 and 28 in fi for lw a11 MayClaude responded: Good catch!Good catch! Those offsets were wrong in my previous response. Let me explain the correct stack layout carefully.
+
+The stack layout step by step
+When you do addi sp sp -48 at the start, the layout is:
+sp+0  = ra
+sp+4  = orig_a0
+sp+8  = 'D'
+sp+12 = 'E'
+sp+16 = '6'
+sp+20 = '8'
+sp+24 = scratch[0]   ← scratch buffer starts here
+...
+sp+47 = scratch[23]
+But then when you do addi sp sp -24 to allocate the scratch buffer separately, sp moves down by 24, so all offsets shift by +24:
+sp+0  = scratch[0]   ← sp now points here
+...
+sp+23 = scratch[23]
+sp+24 = '8'  (was sp+20)
+sp+28 = '6'  (was sp+16)
+sp+32 = 'E'  (was sp+12)
+sp+36 = 'D'  (was sp+8)
+sp+40 = orig_a0      (was sp+4)
+sp+44 = ra           (was sp+0)
+So the correct load would be:
+riscvlw     a1 40(sp)     # orig_a0  (not 28!)
+And to restore the saved chars later:
+riscvlw     t2 28(sp)     # '6'  (not 56!)
+lw     t3 24(sp)     # '8'
+
+Why I wrote wrong offsets
+In my previous response I was calculating the offsets mid-allocation — I had already done addi sp sp -24 for the frame but then wrote 28(sp) as if the scratch buffer hadn't been pushed yet. It was a mistake in tracking sp across multiple addi sp instructions.
+The rule: every time sp moves down by N, add N to all existing offsets to reach the same data.You said: write the full code now corrected versionwrite the full code now corrected version1 MayClaude responded: Here is the complete corrected code:Here is the complete corrected code:
+riscv	.data
+	.globl validate_checksum
+	.text
+
+# -- validate_checksum --
+# Arguments:
+# a0 : Address of a string containing a german IBAN (22 characters)
+# Return:
+# a0 : the checksum of the IBAN
+validate_checksum:
+
+	# Allocate full frame at once:
+	# sp+0  = scratch[0..23]  (24 bytes)
+	# sp+24 = 'D'
+	# sp+28 = 'E'
+	# sp+32 = '6'
+	# sp+36 = '8'
+	# sp+40 = orig_a0
+	# sp+44 = ra
+	addi   sp sp -48
+
+	sw     ra 44(sp)
+	sw     a0 40(sp)
+
+	# Save the 4 header bytes from original IBAN
+	lb     t0 0(a0)          # 'D'
+	lb     t1 1(a0)          # 'E'
+	lb     t2 2(a0)          # '6'
+	lb     t3 3(a0)          # '8'
+
+	sw     t0 24(sp)
+	sw     t1 28(sp)
+	sw     t2 32(sp)
+	sw     t3 36(sp)
+
+	# Step 1: copy IBAN[4..21] into scratch[0..17]
+	mv     a0 sp             # dest = scratch buffer (sp+0)
+	lw     a1 40(sp)         # source = original IBAN base
+	addi   a1 a1 4           # source = IBAN+4
+	li     a2 18
+	call   memcpy
+
+	# Step 2: convert 'D','E' -> 1314, write into scratch[18..21]
+	lw     t0 24(sp)         # 'D'
+	lw     t1 28(sp)         # 'E'
+
+	li     t5 65             # 'A'
+	sub    t0 t0 t5          # D - A = 3
+	addi   t0 t0 10          # 3 + 10 = 13
+
+	li     t6 100
+	mul    t0 t0 t6          # 13 * 100 = 1300
+
+	sub    t1 t1 t5          # E - A = 4
+	addi   t1 t1 10          # 4 + 10 = 14
+
+	add    t4 t0 t1          # 1300 + 14 = 1314
+
+	addi   a1 sp 18          # target = scratch[18]
+	li     a2 4              # 4 digits
+	mv     a0 t4             # value = 1314
+	call   int_to_buf
+
+	# Step 3: write check digits '6','8' into scratch[22..23]
+	lw     t2 32(sp)         # '6'
+	lw     t3 36(sp)         # '8'
+	addi   t6 sp 22
+	sb     t2 0(t6)          # scratch[22] = '6'
+	addi   t6 t6 1
+	sb     t3 0(t6)          # scratch[23] = '8'
+
+	# Step 4: call modulo_str on scratch buffer
+	mv     a0 sp             # a0 = scratch buffer
+	li     a1 24             # length = 24
+	li     a2 97             # divisor = 97
+	call   modulo_str
+
+	# a0 now holds the checksum — preserve it across stack restore
+	mv     t0 a0
+
+	lw     ra 44(sp)
+	addi   sp sp 48
+
+	mv     a0 t0
+	jr     ra
+
+Key fixes from all previous versions
+ProblemFixWriting beyond original bufferAll work done in a private 24-byte scratch buffer on the stackWrong return valuemodulo_str result saved in t0 before stack is restored, then moved back to a0Check digits at wrong offsetWritten at scratch[22] and scratch[23]modulo_str called with length 22Now correctly called with length 24sp moved in multiple steps causing offset confusionSingle addi sp sp -48 at the start — all offsets are fixed and stable throughoutYou said: explain the stack formation here thoroughlyexplain the stack formation here thoroughly1 MayClaude responded: Let me draw the stack visually step by step.Let me draw the stack visually step by step.
+
+Before the function is called
+High address
+┌─────────────┐
+│  caller's   │
+│    data     │
+├─────────────┤  ← sp  (points here before our function starts)
+│             │
+Low address
+
+After addi sp sp -48
+We allocate 48 bytes at once. sp moves DOWN by 48. Every slot is now planned:
+High address
+┌─────────────┐  ← old sp
+│  sp+44 = ra │  4 bytes — return address
+├─────────────┤
+│ sp+40 = a0  │  4 bytes — original IBAN pointer
+├─────────────┤
+│ sp+36 = '8' │  4 bytes — IBAN[3]
+├─────────────┤
+│ sp+32 = '6' │  4 bytes — IBAN[2]
+├─────────────┤
+│ sp+28 = 'E' │  4 bytes — IBAN[1]
+├─────────────┤
+│ sp+24 = 'D' │  4 bytes — IBAN[0]
+├─────────────┤
+│ sp+23       │  ┐
+│ sp+22       │  │
+│ sp+21       │  │
+│   ...       │  │  24 bytes — scratch buffer
+│ sp+1        │  │
+│ sp+0        │  ┘
+└─────────────┘  ← sp  (points here after addi)
+Low address
+
+Why 48 bytes total?
+24 bytes  →  scratch buffer  (positions 0–23)
+ 4 bytes  →  save 'D'
+ 4 bytes  →  save 'E'
+ 4 bytes  →  save '6'
+ 4 bytes  →  save '8'
+ 4 bytes  →  save orig a0
+ 4 bytes  →  save ra
+─────────
+48 bytes  total
+
+What gets written where and when
+Step 1 — save ra and a0:
+sw ra  44(sp)    →  puts return address at sp+44
+sw a0  40(sp)    →  puts IBAN pointer at sp+40
+┌─────────────┐  ← old sp
+│ sp+44 = ra  │  ✓ filled
+├─────────────┤
+│ sp+40 = a0  │  ✓ filled
+├─────────────┤
+│ sp+36 = '8' │  (empty)
+│ sp+32 = '6' │  (empty)
+│ sp+28 = 'E' │  (empty)
+│ sp+24 = 'D' │  (empty)
+├─────────────┤
+│  scratch    │  (empty)
+└─────────────┘  ← sp
+Step 2 — save the 4 header bytes:
+sw t0  24(sp)    →  'D' at sp+24
+sw t1  28(sp)    →  'E' at sp+28
+sw t2  32(sp)    →  '6' at sp+32
+sw t3  36(sp)    →  '8' at sp+36
+┌─────────────┐  ← old sp
+│ sp+44 = ra  │  ✓
+├─────────────┤
+│ sp+40 = a0  │  ✓
+├─────────────┤
+│ sp+36 = '8' │  ✓ filled
+│ sp+32 = '6' │  ✓ filled
+│ sp+28 = 'E' │  ✓ filled
+│ sp+24 = 'D' │  ✓ filled
+├─────────────┤
+│  scratch    │  (empty)
+└─────────────┘  ← sp
+Step 3 — memcpy fills scratch[0..17]:
+a0 = sp          →  dest  = scratch start
+a1 = IBAN+4      →  source = bytes after "DE68"
+a2 = 18
+┌─────────────┐
+│ sp+44 = ra  │  ✓
+│ sp+40 = a0  │  ✓
+│ sp+36 = '8' │  ✓
+│ sp+32 = '6' │  ✓
+│ sp+28 = 'E' │  ✓
+│ sp+24 = 'D' │  ✓
+├─────────────┤
+│ sp+17       │  ┐
+│   ...       │  │ ✓ filled by memcpy
+│ sp+0        │  ┘   (BLZ + KNR, 18 bytes)
+└─────────────┘  ← sp
+Step 4 — int_to_buf fills scratch[18..21]:
+a1 = sp+18       →  target address inside scratch
+a2 = 4           →  4 digits
+a0 = 1314        →  value to write
+│ sp+21       │  ┐
+│ sp+20       │  │ ✓ "1314" written here
+│ sp+19       │  │
+│ sp+18       │  ┘
+│ sp+17       │  ┐
+│   ...       │  │ (BLZ+KNR from before)
+│ sp+0        │  ┘
+Step 5 — sb writes scratch[22..23]:
+sb t2  0(sp+22)  →  '6' at sp+22
+sb t3  0(sp+23)  →  '8' at sp+23
+│ sp+23 = '8' │  ✓
+│ sp+22 = '6' │  ✓
+│ sp+21..18   │  ✓  "1314"
+│ sp+17..0    │  ✓  BLZ + KNR
+
+Final scratch buffer contents at modulo_str call
+Position:  0                   17|18  21|22 23
+           [  BLZ + KNR (18 chars) ][1314][68]
+This is the full rearranged 24-character IBAN string ready for mod 97.
+
+After modulo_str returns
+mv  t0 a0        →  save checksum before we disturb a0
+lw  ra 44(sp)    →  restore return address
+addi sp sp 48    →  sp moves back UP to where caller left it
+mv  a0 t0        →  put checksum into return register
+jr  ra           →  return to caller
+The stack is exactly restored to its original position — the caller sees no change to sp.    .data
+    .globl validate_checksum
+    .text
+
+# -- validate_checksum --
+# Arguments:
+# a0 : Address of a string containing a german IBAN (22 characters)
+# Return:
+# a0 : the checksum of the IBAN
+validate_checksum:
+# TODO
+
+# Stroring Country code
+    lb     t0 0(a0)
+    lb     t1 1(a0)
+    lb     t2 2(a0)
+    lb     t3 3(a0)
+
+
+    addi   sp sp -48
+
+# saved the first 4 characters
+    sw     t0 24(sp)         # D
+    sw     t1 28(sp)         # E
+    sw     t2 32sp)          # 6
+    sw     t3 36(sp)         # 8
+
+# Shifting all bits of BLZ & KNR to stack pointer
+
+    sw     a0 40(sp)
+    sw     ra 44(sp)
+
+
+    li     a2 18             # a2: number of characters
+    addi   a1 a0 4           # Source adress
+    mv     a0 sp             # save a0 in t4
+
+    call   memcpy
+
+
+# converting ascii to decimal
+    li     t6 100
+    li     t5 65
+    sub    t0 t0 t5          # 3
+    addi   t0 t0 10          # 13
+
+    mul    t0 t0 t6
+
+    sub    t1 t1 t5          # 4
+    addi   t1 t1 10          # 14
+
+    add    t4 t0 t1          #+ve number
+
+# storing ascii numbers from 16 - 20 in sp
+
+    addi   a1 sp 18          #target address (18)
+    li     a2 4
+    mv     a0 t4
+
+    call   int_to_buf        # writes all the numbers to the back
+
+
+#store checksum
+
+
+    mv     t6 sp
+    addi   t6 t6 22
+    sb     t2 0(t6)
+    addi   t6 t6 1
+    sb     t3 0(t6)
+
+    mv     a0 sp
+    li     a1 24
+    li     a2 97
+    call   modulo_str
+
+    mv     t0 a0
+    lw     ra 44(sp)
+    addi   sp sp 48
+    mv     a0 t0
+
+    jr     ra
+this error showung up with this new codeShow more1 MayClaude responded: The error "venus terminated with value 255" means a crash/segfault — the simulator hit an illegal memory access.The error "venus terminated with value 255" means a crash/segfault — the simulator hit an illegal memory access. I can see the bug immediately in your code:
+riscvsw     t2 32sp)          # missing opening parenthesis!
+That's a syntax error on line with 32sp) — it should be 32(sp). This likely causes the assembler to misassemble the instruction, corrupting the stack and crashing at runtime.
+But there's also a logic bug — after memcpy, t0, t1, t2, t3 are clobbered because memcpy uses those registers internally:
+riscv# memcpy uses t0, t1, t2, t4 internally!
+call   memcpy
+
+# These are now GARBAGE values, not 'D','E','6','8' anymore:
+sub    t0 t0 t5          # t0 was overwritten by memcpy!
+sub    t1 t1 t5          # t1 was overwritten by memcpy!
+...
+sb     t2 0(t6)          # t2 was overwritten by memcpy!
+sb     t3 0(t6)          # t3 was overwritten by memcpy!
+You need to reload them from the stack after memcpy returns:
+riscv	call   memcpy
+
+	# Reload saved header bytes - memcpy clobbered t0-t4
+	lw     t0 24(sp)         # 'D'
+	lw     t1 28(sp)         # 'E'
+	lw     t2 32(sp)         # '6'
+	lw     t3 36(sp)         # '8'
+
+	# NOW do the ASCII conversion
+	li     t6 100
+	li     t5 65
+	sub    t0 t0 t5
+	...
+Similarly, reload t2 and t3 before writing the check digits:
+riscv	call   int_to_buf
+
+	# int_to_buf also clobbers t registers - reload
+	lw     t2 32(sp)         # '6'
+	lw     t3 36(sp)         # '8'
+
+	mv     t6 sp
+	addi   t6 t6 22
+	sb     t2 0(t6)
+	addi   t6 t6 1
+	sb     t3 0(t6)
+Here is the fully corrected code:
+riscv	.data
+	.globl validate_checksum
+	.text
+
+validate_checksum:
+
+	lb     t0 0(a0)          # 'D'
+	lb     t1 1(a0)          # 'E'
+	lb     t2 2(a0)          # '6'
+	lb     t3 3(a0)          # '8'
+
+	addi   sp sp -48
+
+	sw     t0 24(sp)         # save 'D'
+	sw     t1 28(sp)         # save 'E'
+	sw     t2 32(sp)         # save '6'  ← fix: was 32sp)
+	sw     t3 36(sp)         # save '8'
+	sw     a0 40(sp)         # save original IBAN pointer
+	sw     ra 44(sp)         # save return address
+
+	# Step 1: memcpy IBAN[4..21] into scratch[0..17]
+	li     a2 18
+	addi   a1 a0 4
+	mv     a0 sp
+	call   memcpy
+
+	# Reload after memcpy (it clobbered t0-t4)
+	lw     t0 24(sp)         # 'D'
+	lw     t1 28(sp)         # 'E'
+
+	# Step 2: convert DE -> 1314, write into scratch[18..21]
+	li     t5 65
+	sub    t0 t0 t5
+	addi   t0 t0 10          # 13
+	li     t6 100
+	mul    t0 t0 t6          # 1300
+	sub    t1 t1 t5
+	addi   t1 t1 10          # 14
+	add    t4 t0 t1          # 1314
+
+	addi   a1 sp 18
+	li     a2 4
+	mv     a0 t4
+	call   int_to_buf
+
+	# Reload after int_to_buf (it clobbered t registers)
+	lw     t2 32(sp)         # '6'
+	lw     t3 36(sp)         # '8'
+
+	# Step 3: write check digits into scratch[22..23]
+	mv     t6 sp
+	addi   t6 t6 22
+	sb     t2 0(t6)
+	addi   t6 t6 1
+	sb     t3 0(t6)
+
+	# Step 4: modulo_str on full 24-byte scratch buffer
+	mv     a0 sp
+	li     a1 24
+	li     a2 97
+	call   modulo_str
+
+	mv     t0 a0
+	lw     ra 44(sp)
+	addi   sp sp 48
+	mv     a0 t0
+
+	jr     ra
+The two fixes are: the typo 32sp) → 32(sp), and reloading t0–t3 from the stack after every call that clobbers them.    .data
+    .globl validate_checksum
+    .text
+
+# -- validate_checksum --
+# Arguments:
+# a0 : Address of a string containing a german IBAN (22 characters)
+# Return:
+# a0 : the checksum of the IBAN
+validate_checksum:
+# TODO
+
+# Stroring Country code
+    lb     t0 0(a0)
+    lb     t1 1(a0)
+    lb     t2 2(a0)
+    lb     t3 3(a0)
+
+
+    addi   sp sp -48
+
+# saved the first 4 characters
+    sw     t0 24(sp)         # D
+    sw     t1 28(sp)         # E
+    sw     t2 32(sp)          # 6
+    sw     t3 36(sp)         # 8
+
+# Shifting all bits of BLZ & KNR to stack pointer
+
+    sw     a0 40(sp)
+    sw     ra 44(sp)
+
+
+    li     a2 18             # a2: number of characters
+    addi   a1 a0 4           # Source adress
+    mv     a0 sp             # save a0 in t4
+
+    call   memcpy
+
+    lw     t0 24(sp)         # D
+    lw     t1 28(sp)         # E
+    lw     t2 32(sp)          # 6
+    lw     t3 36(sp)         # 8
+
+
+
+
+# converting ascii to decimal
+    li     t6 100
+    li     t5 65
+    sub    t0 t0 t5          # 3
+    addi   t0 t0 10          # 13
+
+    mul    t0 t0 t6
+
+    sub    t1 t1 t5          # 4
+    addi   t1 t1 10          # 14
+
+    add    t4 t0 t1          #+ve number
+
+# storing ascii numbers from 16 - 20 in sp
+
+    addi   a1 sp 18          #target address (18)
+    li     a2 4
+    mv     a0 t4
+
+    call   int_to_buf        # writes all the numbers to the back
+
+    lw     t2 32(sp)          # 6
+    lw     t3 36(sp)         # 8
+
+
+#store checksum
+
+
+    mv     t6 sp
+    addi   t6 t6 22
+    sb     t2 0(t6)
+    addi   t6 t6 1
+    sb     t3 0(t6)
+
+    mv     a0 sp
+    li     a1 24
+    li     a2 97
+    call   modulo_str
+
+    mv     t0 a0
+    lw     ra 44(sp)
+    addi   sp sp 48
+    mv     a0 t0
+
+    jr     ra
+still errorShow more1 MayClaude responded: Still crashing with 255.Still crashing with 255. The code looks correct logically now, so the crash is likely happening inside memcpy due to a subtle issue.
+The problem is here:
+riscvli     a2 18
+addi   a1 a0 4           # source = IBAN+4
+mv     a0 sp             # dest = scratch buffer
+call   memcpy
+Look at memcpy's loop condition:
+riscvadd    t2 a1 a2          # last source = IBAN+4+18 = IBAN+22
+bltu   t1 t2 mc_loop     # while source < last
+If a2 = 0 or the addresses wrap around, it loops forever or crashes. But more critically — look at what memcpy does when it returns: it falls through directly into int_to_buf because there is no ret/jr ra at the end of memcpy!
+Look at the original code you shared at the very start:
+riscvmc_loop:
+	lbu    t4 0(t1)
+	sb     t4 0(t0)
+	addi   t0 t0 1
+	addi   t1 t1 1
+	bltu   t1 t2 mc_loop
+
+# -- int_to_buf --          ← memcpy just falls into int_to_buf!
+int_to_buf:
+There is no jr ra after the bltu loop exit in memcpy! So when the loop finishes, execution falls straight into int_to_buf instead of returning. This was hidden before because your previous code called memcpy and int_to_buf in sequence anyway, but now with the stack-based scratch buffer the fall-through corrupts everything.
+The fix — add jr ra at the end of memcpy:
+riscvmc_loop:
+	lbu    t4 0(t1)
+	sb     t4 0(t0)
+	addi   t0 t0 1
+	addi   t1 t1 1
+	bltu   t1 t2 mc_loop
+
+	jr     ra              # ← ADD THIS
+
+# -- int_to_buf --
+int_to_buf:
+And same check for int_to_buf — it also needs a jr ra at the end:
+riscvib_loop:
+	...
+	bgeu   t1 t2 ib_loop
+
+	jr     ra              # ← ADD THIS IF MISSING
+
+# -- validate_checksum --
+validate_checksum:
+Check your utils.s or wherever memcpy and int_to_buf are defined and make sure both have a proper jr ra return at the end.You said: they ahve itthey ahve it1 MayClaude responded: Good — memcpy has jr ra at line 37 via mv_return.Good — memcpy has jr ra at line 37 via mv_return. So that's not the issue.
+The crash must be coming from int_to_buf being called with a stack address as target, but int_to_buf uses ra internally — and you never saved ra before calling int_to_buf in your current code!
+Look at your code after the memcpy call:
+riscvlw     t0 24(sp)
+lw     t1 28(sp)
+lw     t2 32(sp)
+lw     t3 36(sp)
+
+# ... ascii conversion ...
+
+addi   a1 sp 18
+li     a2 4
+mv     a0 t4
+call   int_to_buf        # ← this overwrites ra!
+
+lw     t2 32(sp)
+lw     t3 36(sp)
+# ... then later ...
+lw     ra 44(sp)         # restores ra saved at the START
+call int_to_buf overwrites ra with the return address back to your function. But you already saved the original ra at 44(sp) at the beginning — so that's fine, you restore it correctly at the end.
+The real crash is more likely this: int_to_buf writes to a1 = sp+18, but look at what int_to_buf does internally:
+riscvint_to_buf:
+    mv     t2 a1             # start = sp+18
+    add    t3 a1 a2          # t3 = sp+18+4 = sp+22
+    addi   t1 t3 -1          # t1 = sp+21  (writes from here backwards)
+It writes from sp+21 down to sp+18. That's fine — within your scratch buffer.
+Scroll down in utils.s — does int_to_buf have a jr ra at the end? Can you show the rest of the file below line 49?You said: so initially the output of validate check is 1 byte and we have to make 2 gigits for out new subroutine to subtracte it from the 98so initially the output of validate check is 1 byte and we have to make 2 gigits for out new subroutine to subtracte it from the 982 MayClaude responded: I see two things from the images:I see two things from the images:
+
+The validate_checksum crash is still unsolved — we need to see the rest of utils.s to check if int_to_buf has a jr ra
+You're now also looking at task 4: knr2iban
+
+
+Let me focus on why validate_checksum still crashes. The key question is: does lb sign-extend?
+Yes — lb does sign extension. Look at your code:
+riscvlb     t0 0(a0)          # loads 'D' = 0x44 = 68 → fine, positive
+lb     t1 1(a0)          # loads 'E' = 0x45 = 69 → fine
+lb     t2 2(a0)          # loads '6' = 0x36 = 54 → fine
+lb     t3 3(a0)          # loads '8' = 0x38 = 56 → fine
+These are all fine since ASCII values are below 128. So lb isn't the issue here.
+The real problem: look at sw vs sb. You're saving with sw (store word = 4 bytes) but the scratch buffer slots for the header bytes start at sp+24. Your scratch buffer is only 24 bytes (sp+0 to sp+23). So:
+sw t0 24(sp)   → writes 4 bytes at sp+24, sp+25, sp+26, sp+27  ✓
+sw t1 28(sp)   → writes 4 bytes at sp+28, sp+29, sp+30, sp+31  ✓
+sw t2 32(sp)   → writes 4 bytes at sp+32, sp+33, sp+34, sp+35  ✓
+sw t3 36(sp)   → writes 4 bytes at sp+36, sp+37, sp+38, sp+39  ✓
+sw a0 40(sp)   → writes 4 bytes at sp+40, sp+41, sp+42, sp+43  ✓
+sw ra 44(sp)   → writes 4 bytes at sp+44, sp+45, sp+46, sp+47  ✓
+Total = 48 bytes. That fits exactly. So the stack layout is fine.
+
+The actual crash cause: memcpy source and dest overlap in a dangerous way
+riscvmv     a0 sp             # dest = sp+0
+addi   a1 a0 4           # BUG: a0 was just changed to sp!
+                         # so a1 = sp+4, NOT original_IBAN+4 !
+This is the bug. You set a0 = sp first, then compute `a1 = a0 + 4
+
+
+You said: so initially the output of validate check is 1 byte and we have to make 2 gigits for out new subroutine to subtracte it from the 98 so do i use lhu or sh
+1777710048832_image.png
+so initially the output of validate check is 1 byte and we have to make 2 gigits for out new subroutine to subtracte it from the 98   so do i use lhu or sh
+
+2 May
+Claude responded: Good question!
+Good question! Let's think through this carefully.
+
+The check digit value (result of validation function)
+The result is a remainder from modulo 97, so it's a value between 0 and 96 — that fits in a byte, but it's a number, not an ASCII character yet.
+
+What you need to do
+You need to compute 98 - result, which gives you a number (1–98), then convert it to a 2-digit ASCII string to store in the IBAN buffer.
+
+So: lhu or sh?
+Neither is the right tool for this step. Here's why:
+
+lhu = load halfword unsigned (reading 2 bytes from memory) — you'd use this if you were reading the check digits back
+sh = store halfword (writing 2 bytes) — tempting, but the two digits are two separate ASCII characters at two separate byte addresses
+What you actually want:
+asm
+# After computing: t0 = 98 - modulo_result  (value 1-98)
+
+# Extract tens digit
+li   t1, 10
+div  t2, t0, t1        # t2 = tens digit (0-9)
+rem  t3, t0, t1        # t3 = units digit (0-9)
+
+# Convert to ASCII
+addi t2, t2, '0'       # '0' = 48
+addi t3, t3, '0'
+
+# Store into IBAN buffer at positions [2] and [3]
+sb   t2, 2(a0)         # IBAN[2] = tens digit
+sb   t3, 3(a0)         # IBAN[3] = units digit
+Why sb (store byte) twice, not sh?
+Because the IBAN buffer holds individual ASCII characters — "DE" at [0-1], check digits at [2-3], BLZ at [4-11], KNR at [12-21]. Each character is 1 byte. Using sh would work on little-endian only and would be confusing/fragile. Two sb instructions is the clean, correct approach.
+
+1777713230889_image.png
+    .data
+    .globl knr2iban
+    .text
+# -- knr2iban
+# Arguments:
+# a0: IBAN buffer (22 bytes)
+# a1: BLZ buffer (8 bytes)
+# a2: KNR buffer (10 bytes)
+knr2iban:
+# TODO
+
+    mv     t0 a0
+
+
+    li     t1 68
+    li     t2 69
+    sb     t1 0(t0)
+    addi   t0 1
+    sb     t2 0(t0)
+
+    mv     t3 '0'
+    addi   t0 1
+    sb     t3 0(t0)
+    addi   t0 1
+    sb     t3 0(t0)
+
+
+#stored BLZ
+    addi   sp sp -16
+    sw     ra 0(sp)
+    sw     a0 4(sp)
+    sw     a2 8(sp)
+    sw     a1 12(sp)
+
+    addi   a0 a0 4
+    li     a2 8
+    call   memcpy
+
+    lw     ra 0(sp)
+    lw     a0 4(sp)
+    lw     a2 8(sp)
+    lw     a1 12(sp)
+    addi   sp sp 16
+    jr     ra
+
+#stored KNR
+    addi   sp sp -16
+    sw     ra 0(sp)
+    sw     a0 4(sp)
+    sw     a2 8(sp)
+    sw     a1 12(sp)
+
+    addi   a0 a0 12
+    mv     a1 a2
+    li     a2 10
+
+    call   memcpy
+
+    lw     ra 0(sp)
+    lw     a0 4(sp)
+    lw     a2 8(sp)
+    addi   sp sp 16
+    jr     ra
+
+#STORING THE cHECK DIGIT
+    addi   t4 a0 3           # points to 3rd index for Check digit storing
+    addi   sp sp -8
+    sw     ra 0(sp)
+    sw     t4 4(sp)
+
+    call   validate_checksum
+
+    lw     ra 0(sp)
+    lw     t4 4(sp)
+    addi   sp sp 8
+
+# storing the check sum in 3rd and 4th
+    li     t0 10
+    mv     t1 98
+    mv     t2 a0
+    sub    t3 t1 t2          # checksum deneray form
+    addi   t5 t4 1
+
+C_loop:
+    div    t3 t0             # gives quotient
+    rem    t3 t0             # gives remainder
+
+    addi   t3 t3 '0'
+    sb     t3 0(t4)
+    addi   t4 t4 1
+
+    bltu   t4 t5 C_loop
+
+
+
+
+
+
+
+
+
+
+this errors coming help
+Show more
+2 May
+Claude responded: Looking at the error:
+Looking at the error:
+
+AssemblerError: knr2iban.s:18: got 2 arguments but expected 3
+addi    t0 1
+addi always needs 3 operands: addi rd, rs1, imm. You wrote addi t0 1 instead of addi t0, t0, 1.
+
+But your code has many more issues — let me give you a corrected version:
+
+riscv
+.data
+.globl knr2iban
+.text
+
+knr2iban:
+    # Save everything we need
+    addi   sp, sp, -24
+    sw     ra,  0(sp)
+    sw     a0,  4(sp)
+    sw     a1,  8(sp)
+    sw     a2, 12(sp)
+
+    # --- Store "DE" at [0] and [1] ---
+    li     t1, 68          # 'D'
+    li     t2, 69          # 'E'
+    sb     t1, 0(a0)
+    sb     t2, 1(a0)
+
+    # --- Store "00" placeholder at [2] and [3] ---
+    li     t3, 48          # '0'
+    sb     t3, 2(a0)
+    sb     t3, 3(a0)
+
+    # --- Copy BLZ (8 bytes) into IBAN[4..11] ---
+    addi   a0, a0, 4       # dest = &IBAN[4]
+    # a1 already = BLZ buffer
+    li     a2, 8
+    call   memcpy
+
+    lw     a0,  4(sp)
+    lw     a1,  8(sp)
+    lw     a2, 12(sp)
+
+    # --- Copy KNR (10 bytes) into IBAN[12..21] ---
+    addi   a0, a0, 12      # dest = &IBAN[12]
+    mv     a1, a2           # src  = KNR buffer
+    li     a2, 10
+    call   memcpy
+
+    lw     a0,  4(sp)
+    lw     a1,  8(sp)
+    lw     a2, 12(sp)
+
+    # --- Compute check digits ---
+    # validate_checksum(a0) returns remainder in a0
+    call   validate_checksum
+
+    li     t1, 98
+    sub    t0, t1, a0      # check digit value = 98 - remainder
+
+    # Split into two ASCII digits
+    li     t1, 10
+    div    t2, t0, t1      # tens digit
+    rem    t3, t0, t1      # units digit
+    addi   t2, t2, 48      # to ASCII
+    addi   t3, t3, 48
+
+    lw     a0,  4(sp)      # restore IBAN base
+    sb     t2,  2(a0)      # IBAN[2] = tens
+    sb     t3,  3(a0)      # IBAN[3] = units
+
+    lw     ra,  0(sp)
+    addi   sp, sp, 24
+    jr     ra
+Key fixes made:
+addi t0, t0, 1 — always 3 operands, destination first
+Single stack frame — you had jr ra in the middle of your code, which returned early before KNR and check digit code ever ran. Keep one frame for the whole function.
+div/rem syntax — div t2, t0, t1 needs all 3 registers; you wrote div t3 t0 (only 2)
+mv t1, 98 — mv is for registers only; use li t1, 98 for immediates
+sub t3, t1, t2 — you used a0 as the remainder but a0 gets clobbered by memcpy; restore it from the stack first
+1777713512390_image.png
+    .data
+    .globl knr2iban
+    .text
+# -- knr2iban
+# Arguments:
+# a0: IBAN buffer (22 bytes)
+# a1: BLZ buffer (8 bytes)
+# a2: KNR buffer (10 bytes)
+knr2iban:
+# TODO
+
+    mv     t0 a0
+
+
+    li     t1 68
+    li     t2 69
+    sb     t1 0(t0)
+    addi   t0 t0 1
+    sb     t2 0(t0)
+
+    li     t3 49
+    addi   t0 t0 1
+    sb     t3 0(t0)
+    addi   t0 t0 1
+    sb     t3 0(t0)
+
+
+#stored BLZ
+    addi   sp sp -16
+    sw     ra 0(sp)
+    sw     a0 4(sp)
+    sw     a2 8(sp)
+    sw     a1 12(sp)
+
+    addi   a0 a0 4
+    li     a2 8
+    call   memcpy
+
+    lw     ra 0(sp)
+    lw     a0 4(sp)
+    lw     a2 8(sp)
+    lw     a1 12(sp)
+    addi   sp sp 16
+    jr     ra
+
+#stored KNR
+    addi   sp sp -16
+    sw     ra 0(sp)
+    sw     a0 4(sp)
+    sw     a2 8(sp)
+    sw     a1 12(sp)
+
+    addi   a0 a0 12
+    mv     a1 a2
+    li     a2 10
+
+    call   memcpy
+
+    lw     ra 0(sp)
+    lw     a0 4(sp)
+    lw     a2 8(sp)
+    addi   sp sp 16
+    jr     ra
+
+#STORING THE cHECK DIGIT
+    addi   t4 a0 3           # points to 3rd index for Check digit storing
+    addi   sp sp -8
+    sw     ra 0(sp)
+    sw     t4 4(sp)
+
+    call   validate_checksum
+
+    lw     ra 0(sp)
+    lw     t4 4(sp)
+    addi   sp sp 8
+
+# storing the check sum in 3rd and 4th
+    li     t0 10
+    li     t1 98
+    mv     t2 a0
+    sub    t3 t1 t2          # checksum deneray form
+    addi   t5 t4 1
+
+C_loop:
+    div    t3 t3 t0          # gives quotient
+    rem    t3 t3 t0          # gives remainder
+
+    addi   t3 t3 '0'
+    sb     t3 0(t4)
+    addi   t4 t4 1
+
+    bltu   t4 t5 C_loop
+
+
+
+
+
+
+
+
+
+
+what is wrong here hlp fix
+Show more
+2 May
+Claude responded: Looking at your output:
+Looking at your output:
+
+Expected: DE87123456781234567890
+Actual: DE1112345678
+There are 3 critical bugs:
+
+Bug 1: jr ra returns early — BLZ block exits the function!
+Your BLZ block ends with jr ra before KNR and check digit code ever runs. You need one single stack frame for the whole function.
+
+Bug 2: Check digit logic is wrong
+You do mv t2, a0 then sub t3, t1, t2 — but a0 is the buffer address (like 0x10000), not the checksum result! The checksum is returned in a0 after calling validate_checksum.
+
+Bug 3: The loop logic for 2 digits is wrong
+div then rem on the same register overwrites the value. You need to extract tens and units separately.
+
+Fixed code:
+riscv
+.data
+.globl knr2iban
+.text
+
+knr2iban:
+    # One stack frame for the whole function
+    addi   sp, sp, -24
+    sw     ra,  0(sp)
+    sw     a0,  4(sp)
+    sw     a1,  8(sp)
+    sw     a2, 12(sp)
+
+    # Store 'D'=68, 'E'=69 at IBAN[0], IBAN[1]
+    li     t1, 68
+    li     t2, 69
+    sb     t1, 0(a0)
+    sb     t2, 1(a0)
+
+    # Store '0','0' placeholder at IBAN[2], IBAN[3]
+    li     t3, 48
+    sb     t3, 2(a0)
+    sb     t3, 3(a0)
+
+    # Copy BLZ (8 bytes) -> IBAN[4..11]
+    addi   a0, a0, 4        # dest = &IBAN[4]
+    # a1 = BLZ buffer already
+    li     a2, 8
+    call   memcpy
+
+    # Restore registers
+    lw     a0,  4(sp)
+    lw     a1,  8(sp)
+    lw     a2, 12(sp)
+
+    # Copy KNR (10 bytes) -> IBAN[12..21]
+    addi   a0, a0, 12       # dest = &IBAN[12]
+    mv     a1, a2            # src = KNR buffer
+    li     a2, 10
+    call   memcpy
+
+    # Restore registers
+    lw     a0,  4(sp)
+    lw     a1,  8(sp)
+    lw     a2, 12(sp)
+
+    # Call validate_checksum(IBAN base)
+    # a0 is already the IBAN buffer base
+    call   validate_checksum
+    # a0 now = remainder (result of validation)
+
+    # check digit = 98 - remainder
+    li     t1, 98
+    sub    t0, t1, a0       # t0 = check digit value (number)
+
+    # Split into two ASCII digits
+    li     t1, 10
+    div    t2, t0, t1       # t2 = tens digit
+    rem    t3, t0, t1       # t3 = units digit
+    addi   t2, t2, 48       # convert to ASCII
+    addi   t3, t3, 48
+
+    # Write into IBAN[2] and IBAN[3]
+    lw     a0,  4(sp)       # restore IBAN base
+    sb     t2,  2(a0)
+    sb     t3,  3(a0)
+
+    lw     ra,  0(sp)
+    addi   sp, sp, 24
+    jr     ra
+The key insight: save/restore once, never jr ra in the middle, and extract tens/units with separate div and rem into different registers.
+
+1777713730814_image.png
+    .data
+    .globl knr2iban
+    .text
+# -- knr2iban
+# Arguments:
+# a0: IBAN buffer (22 bytes)
+# a1: BLZ buffer (8 bytes)
+# a2: KNR buffer (10 bytes)
+knr2iban:
+# TODO
+
+    mv     t0 a0
+
+
+    li     t1 68
+    li     t2 69
+    sb     t1 0(t0)
+    addi   t0 t0 1
+    sb     t2 0(t0)
+
+    li     t3 49
+    addi   t0 t0 1
+    sb     t3 0(t0)
+    addi   t0 t0 1
+    sb     t3 0(t0)
+
+
+#stored BLZ
+    addi   sp sp -16
+    sw     ra 0(sp)
+    sw     a0 4(sp)
+    sw     a2 8(sp)
+    sw     a1 12(sp)
+
+    addi   a0 a0 4
+    li     a2 8
+    call   memcpy
+
+    lw     ra 0(sp)
+    lw     a0 4(sp)
+    lw     a2 8(sp)
+    lw     a1 12(sp)
+    addi   sp sp 16
+
+
+#stored KNR
+    addi   sp sp -16
+    sw     ra 0(sp)
+    sw     a0 4(sp)
+    sw     a2 8(sp)
+    sw     a1 12(sp)
+
+    addi   a0 a0 12
+    mv     a1 a2
+    li     a2 10
+
+    call   memcpy
+
+    lw     ra 0(sp)
+    lw     a0 4(sp)
+    lw     a2 8(sp)
+    addi   sp sp 16
+
+
+#STORING THE cHECK DIGIT
+    addi   t4 a0 3           # points to 3rd index for Check digit storing
+    addi   sp sp -8
+    sw     ra 0(sp)
+    sw     t4 4(sp)
+
+    call   validate_checksum
+
+    lw     ra 0(sp)
+    lw     t4 4(sp)
+    addi   sp sp 8
+
+# storing the check sum in 3rd and 4th
+    li     t0 10
+    li     t1 98
+    mv     t2 a0
+    sub    t3 t1 t2          # checksum deneray form
+    addi   t5 t4 1
+
+C_loop:
+    div    t3 t3 t0          # gives quotient
+    rem    t3 t3 t0          # gives remainder
+
+    addi   t3 t3 '0'
+    sb     t3 0(t4)
+    addi   t4 t4 1
+
+    bltu   t4 t5 C_loop
+
+    jr     ra
+
+
+
+
+
+
+
+
+checksum is wrong
+Show more
+2 May
+Claude responded: Good progress!
+Good progress! BLZ and KNR are now correct (DE_71234567812345678_90). Only the check digits 17 are wrong instead of 87.
+
+The problem
+After call validate_checksum, a0 contains the remainder (the checksum result). But you do:
+
+riscv
+mv     t2 a0      # t2 = remainder (correct)
+sub    t3 t1 t2   # t3 = 98 - remainder (correct so far)
+Then your loop does div then rem on the same register t3 — this destroys the value. div overwrites t3 with the quotient, then rem uses that quotient, not the original number.
+
+Also your loop only runs once (t4 goes from position 2 to 3, then hits t5=3, stops) — so it only writes one digit.
+
+Fix — replace the loop with simple straight-line code:
+riscv
+# After validate_checksum, a0 = remainder
+    li     t1, 98
+    sub    t0, t1, a0       # t0 = check digit value (e.g. 87)
+
+    li     t1, 10
+    div    t2, t0, t1       # t2 = tens digit (8)
+    rem    t3, t0, t1       # t3 = units digit (7)
+
+    addi   t2, t2, 48       # to ASCII
+    addi   t3, t3, 48
+
+    lw     a0, 4(sp)        # restore IBAN base  <-- you need a0 saved on stack!
+    sb     t2, 2(a0)        # IBAN[2] = '8'
+    sb     t3, 3(a0)        # IBAN[3] = '7'
+No loop needed — you always have exactly 2 digits. Save a0 on the stack before call validate_checksum so you can restore it afterwards to write back to the IBAN buffer.
+
+1777715795309_image.png
+    .data
+    .globl knr2iban
+    .text
+# -- knr2iban
+# Arguments:
+# a0: IBAN buffer (22 bytes)
+# a1: BLZ buffer (8 bytes)
+# a2: KNR buffer (10 bytes)
+knr2iban:
+# TODO
+
+    mv     t0 a0
+
+
+    li     t1 68
+    li     t2 69
+    sb     t1 0(t0)
+    addi   t0 t0 1
+    sb     t2 0(t0)
+
+    li     t3 49
+    addi   t0 t0 1
+    sb     t3 0(t0)
+    addi   t0 t0 1
+    sb     t3 0(t0)
+
+
+#stored BLZ
+    addi   sp sp -16
+    sw     ra 0(sp)
+    sw     a0 4(sp)
+    sw     a2 8(sp)
+    sw     a1 12(sp)
+
+    addi   a0 a0 4
+    li     a2 8
+    call   memcpy
+
+    lw     ra 0(sp)
+    lw     a0 4(sp)
+    lw     a2 8(sp)
+    lw     a1 12(sp)
+    addi   sp sp 16
+
+
+#stored KNR
+    addi   sp sp -16
+    sw     ra 0(sp)
+    sw     a0 4(sp)
+    sw     a2 8(sp)
+    sw     a1 12(sp)
+
+    addi   a0 a0 12
+    mv     a1 a2
+    li     a2 10
+
+    call   memcpy
+
+    lw     ra 0(sp)
+    lw     a0 4(sp)
+    lw     a2 8(sp)
+    addi   sp sp 16
+
+
+#STORING THE cHECK DIGIT
+    mv     t4 a0
+    addi   sp sp -8
+    sw     ra 0(sp)
+    sw     t4 4(sp)
+
+    call   validate_checksum
+
+    lw     ra 0(sp)
+    lw     t4 4(sp)
+    addi   sp sp 8
+
+# storing the check sum in 3rd and 4th
+    li     t0 10
+    li     t1 98
+    mv     t2 a0
+    sub    t3 t1 a0          # checksum deneray form
+
+
+
+    div    t3 t3 t0          # gives quotient
+    rem    t5 t3 t0          # gives remainder
+
+    addi   t3 t3 48
+    addi   t5 t5 48
+
+    mv     a0 t4
+    lw     a0 4(sp)
+    sb     t3 2(a0)
+    sb     t5 3(a0)
+
+
+    jr     ra
+
+
+
+
+
+
+
+
+with new code it gives this output
+Show more
+2 May
+Claude responded: You're so close!
+You're so close! The output is DE11 instead of DE87. The issue is the div/rem order — you're storing the quotient where the tens should go, but more importantly:
+
+The bug
+riscv
+div    t3 t3 t0    # t3 = (98 - remainder) / 10  → tens digit ✓
+rem    t5 t3 t0    # t5 = tens_digit % 10  ← WRONG! Should be (98-remainder) % 10
+You do rem on t3 after t3 was already overwritten by div. You need to save the original value first:
+
+riscv
+sub    t3, t1, a0       # t3 = 98 - remainder  (e.g. 87)
+
+div    t2, t3, t0       # t2 = 87 / 10 = 8  (tens)
+rem    t5, t3, t0       # t5 = 87 % 10 = 7  (units) ← use original t3, not post-div t3
+Also you have this dead/broken line:
+
+riscv
+mv     a0 t4      # pointless, immediately overwritten
+lw     a0 4(sp)   # sp was already restored! reads garbage
+Since you already saved a0 as t4, just use t4 directly:
+
+riscv
+# After validate_checksum:
+    li     t0, 10
+    li     t1, 98
+    sub    t3, t1, a0       # t3 = 98 - remainder
+
+    div    t2, t3, t0       # t2 = tens digit
+    rem    t5, t3, t0       # t5 = units digit  ← divide ORIGINAL t3, not post-div
+
+    addi   t2, t2, 48
+    addi   t5, t5, 48
+
+    lw     ra, 0(sp)
+    lw     t4, 4(sp)
+    addi   sp, sp, 8
+
+    sb     t2, 2(t4)        # use t4 directly, no need to reload a0
+    sb     t5, 3(t4)
+
+    jr     ra
+1777715948619_image.png
+    .data
+    .globl knr2iban
+    .text
+# -- knr2iban
+# Arguments:
+# a0: IBAN buffer (22 bytes)
+# a1: BLZ buffer (8 bytes)
+# a2: KNR buffer (10 bytes)
+knr2iban:
+# TODO
+
+    mv     t0 a0
+
+
+    li     t1 68
+    li     t2 69
+    sb     t1 0(t0)
+    addi   t0 t0 1
+    sb     t2 0(t0)
+
+    li     t3 49
+    addi   t0 t0 1
+    sb     t3 0(t0)
+    addi   t0 t0 1
+    sb     t3 0(t0)
+
+
+#stored BLZ
+    addi   sp sp -16
+    sw     ra 0(sp)
+    sw     a0 4(sp)
+    sw     a2 8(sp)
+    sw     a1 12(sp)
+
+    addi   a0 a0 4
+    li     a2 8
+    call   memcpy
+
+    lw     ra 0(sp)
+    lw     a0 4(sp)
+    lw     a2 8(sp)
+    lw     a1 12(sp)
+    addi   sp sp 16
+
+
+#stored KNR
+    addi   sp sp -16
+    sw     ra 0(sp)
+    sw     a0 4(sp)
+    sw     a2 8(sp)
+    sw     a1 12(sp)
+
+    addi   a0 a0 12
+    mv     a1 a2
+    li     a2 10
+
+    call   memcpy
+
+    lw     ra 0(sp)
+    lw     a0 4(sp)
+    lw     a2 8(sp)
+    addi   sp sp 16
+
+
+#STORING THE cHECK DIGIT
+    mv     t4 a0
+    addi   sp sp -8
+    sw     ra 0(sp)
+    sw     t4 4(sp)
+
+    call   validate_checksum
+
+    lw     ra 0(sp)
+    lw     t4 4(sp)
+    addi   sp sp 8
+
+# storing the check sum in 3rd and 4th
+    li     t0 10
+    li     t1 98
+    mv     t2 a0
+    sub    t3 t1 a0          # checksum deneray form
+
+    rem    t5 t3 t0          # gives remainder
+    div    t3 t3 t0          # gives quotient
+
+
+    addi   t3 t3 48
+    addi   t5 t5 48
+
+
+    sb     t3 2(t4)
+    sb     t5 3(t4)
+
+
+    jr     ra
+
+
+
+
+
+
+
+
+now giving this output
+Show more
+2 May
+Claude responded: Getting closer!
+Getting closer! DE76 instead of DE87. The check digit value is wrong.
+
+The problem: validate_checksum returns the remainder, but you're passing the wrong IBAN
+Look at this:
+
+riscv
+mv     t4 a0          # save IBAN base
+addi   sp sp -8
+sw     ra 0(sp)
+sw     t4 4(sp)
+
+call   validate_checksum    # a0 must = IBAN buffer
+a0 is still the IBAN base here ✓ — but the IBAN currently has '1','1' (ASCII 49) at positions [2][3] as placeholder.
+
+The spec says: set check digits to '0' (48), not '1' (49) before calling validate!
+
+Look at your earlier code:
+
+riscv
+li     t3 49      # ← THIS IS '1', should be 48 = '0'
+Fix — just change 49 to 48:
+riscv
+li     t3, 48     # '0' placeholder, not '1'
+addi   t0, t0, 1
+sb     t3, 0(t0)
+addi   t0, t0, 1
+sb     t3, 0(t0)
+The IBAN must read DE00... when passed to validate_checksum, then you replace [2][3] with the real check digits. That one byte difference is why you get 76 instead of 87.
+
+
+
+
