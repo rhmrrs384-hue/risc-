@@ -1,3 +1,14 @@
+Used clause(sonnet4.6) to understand problems, and find errors in my written codes. 
+
+LINKS TO CHAT:
+https://claude.ai/share/d236a6fa-b8bc-44c5-a718-6526a7bc9f82
+https://claude.ai/share/9e6e9957-9ebc-4b8e-b9ff-235d0e6bb9d4
+https://claude.ai/share/20f2d710-fcf4-4262-a883-45fe7cb3e062
+https://claude.ai/share/1f014bd9-b7c5-4c72-8898-a58ec68139e5
+https://claude.ai/share/e5cd4ccd-9a98-4f86-ad08-8f9a5990fd0b
+
+COPY PASTE OF ALL CONVERSATION:
+
 Claude finished the responseYou said: ive written this code and it gives me this errorive written this code and it gives me this error27 AprClaude responded: Looking at your code and the error message:Looking at your code and the error message:
 Error: AssemblerError: iban2knr.s:17: label t3 used but not defined la a1 t3
 The issue is on line 17:
